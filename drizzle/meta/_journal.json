@@ -8,6 +8,13 @@
       "when": 1795024378714,
       "tag": "0000_spooky_devos",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1795044376795,
+      "tag": "0001_nice_speedball",
+      "breakpoints": true
     }
   ]
 }

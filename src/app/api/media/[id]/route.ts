@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
-import { waMessages } from "@/db/schema";
+import { mediaBlobs, waMessages } from "@/db/schema";
 import { clientKey, fail, parseId, rateLimit } from "@/lib/api";
 import { MAX_MEDIA_BYTES, openWhatsAppMedia } from "@/lib/wa";
 
@@ -41,6 +41,24 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const row = rows[0];
   if (!row) return fail("message not found", 404);
   if (!row.mediaId) return fail("no media for this message", 404);
+
+  if (row.mediaId.startsWith("upload:")) {
+    const blobId = Number.parseInt(row.mediaId.slice(7), 10);
+    const blob = Number.isFinite(blobId)
+      ? (await db.select().from(mediaBlobs).where(eq(mediaBlobs.id, blobId)).limit(1))[0]
+      : undefined;
+    if (!blob) return fail("media unavailable", 410);
+    const mime = blob.mimeType.split(";")[0].trim().toLowerCase();
+    const safe = INLINE_TYPES.has(mime) ? mime : "application/octet-stream";
+    const headers = new Headers({
+      "Content-Type": safe,
+      "Content-Disposition": safe === mime ? "inline" : `attachment; filename="message-${id}"`,
+      "Cache-Control": "private, max-age=300",
+      "X-Content-Type-Options": "nosniff",
+    });
+    if (mime.startsWith("image/")) headers.set("Content-Security-Policy", "default-src 'none'; sandbox");
+    return new Response(Buffer.from(blob.dataBase64, "base64"), { status: 200, headers });
+  }
 
   const opened = await openWhatsAppMedia(row.mediaId);
   if (!opened.ok) {

@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
+  mediaBlobs,
   auditEvents,
   syncQueue,
   transactions,
@@ -186,7 +187,36 @@ export function readOpenAIText(json: unknown): { text: string | null; note?: str
   return { text, note: choices[0]?.finish_reason === "length" ? "vision-truncated" : undefined };
 }
 
-const GEMINI_VISION_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+// Google retires Gemini models regularly (2.5 is already closed to new accounts),
+// so try the always-current alias first, then newer/lighter models as fallbacks.
+const GEMINI_MODELS = [
+  process.env.GEMINI_MODEL,
+  "gemini-flash-latest",
+  "gemini-3.5-flash",
+  "gemini-3.1-flash-lite",
+  "gemini-flash-lite-latest",
+].filter((m, i, all): m is string => Boolean(m) && all.indexOf(m) === i);
+
+async function fetchGemini(base64: string, mime: string): Promise<Response> {
+  const body = JSON.stringify(buildGeminiVisionRequest(base64, mime));
+  let last: Response | null = null;
+  for (let pass = 0; pass < 2; pass += 1) {
+    for (const model of GEMINI_MODELS) {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-goog-api-key": String(process.env.GEMINI_API_KEY) },
+        body,
+        cache: "no-store",
+      });
+      if (res.ok) return res;
+      last = res;
+      // Wrong key / bad request will not improve on another model.
+      if (res.status === 400 || res.status === 401 || res.status === 403) return res;
+    }
+    if (pass === 0) await new Promise((r) => setTimeout(r, 1500)); // brief overload: wait, go round once more
+  }
+  return last as Response;
+}
 
 /** Google Gemini (free tier available): bill photos / PDFs -> transcribed text. */
 export function buildGeminiVisionRequest(base64: string, mime: string) {
@@ -222,18 +252,7 @@ async function callVisionProvider(
   try {
     const res =
       provider === "gemini"
-        ? await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_VISION_MODEL}:generateContent`,
-            {
-              method: "POST",
-              headers: {
-                "content-type": "application/json",
-                "x-goog-api-key": String(process.env.GEMINI_API_KEY),
-              },
-              body: JSON.stringify(buildGeminiVisionRequest(base64, mime)),
-              cache: "no-store",
-            },
-          )
+        ? await fetchGemini(base64, mime)
         : provider === "anthropic"
         ? await fetch("https://api.anthropic.com/v1/messages", {
             method: "POST",
@@ -327,6 +346,17 @@ async function extractFromMedia(row: {
   const isAudio = row.messageType === "audio";
   if (!isDoc && !isAudio) return null;
   if (!row.mediaId) return { text: null, source: "none", note: "no-media-id" };
+  if (row.mediaId.startsWith("upload:")) {
+    // Photo uploaded from the app / Share Sheet: bytes live in our own table.
+    const blobId = Number.parseInt(row.mediaId.slice(7), 10);
+    const blob = Number.isFinite(blobId)
+      ? (await db.select().from(mediaBlobs).where(eq(mediaBlobs.id, blobId)).limit(1))[0]
+      : undefined;
+    if (!blob) return { text: null, source: "none", note: "upload-missing" };
+    return isAudio
+      ? audioExtract(Buffer.from(blob.dataBase64, "base64"), blob.mimeType)
+      : visionExtract(blob.dataBase64, blob.mimeType);
+  }
   const media = await downloadWhatsAppMedia(row.mediaId);
   if (!media.bytes) {
     return { text: null, source: "none", note: media.error ?? "media-unavailable", retryable: media.retryable };

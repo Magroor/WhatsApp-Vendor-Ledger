@@ -218,3 +218,16 @@ export type WaMessage = typeof waMessages.$inferSelect;
 export type Transaction = typeof transactions.$inferSelect;
 export type TxItem = typeof txItems.$inferSelect;
 export type Reminder = typeof reminders.$inferSelect;
+
+/**
+ * Bill photos uploaded straight from the app / iPhone Share Sheet (not via
+ * WhatsApp). Stored as base64 text, already downsized by the client, so the
+ * audit trail keeps the original picture. Referenced as mediaId "upload:<id>".
+ */
+export const mediaBlobs = pgTable("media_blobs", {
+  id: serial("id").primaryKey(),
+  mimeType: text("mime_type").notNull(),
+  dataBase64: text("data_base64").notNull(),
+  sizeBytes: integer("size_bytes").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});

@@ -5,11 +5,17 @@ Tracks credit (bills you owe) and debit (payments) for each vendor, from WhatsAp
 ## What it does
 | Need | How |
 |---|---|
-| Get WhatsApp messages in | (A) **Import chat** from WhatsApp "Export Chat" — works with normal WhatsApp. (B) Paste a message in Inbox. (C) **Automatic** via WhatsApp Business Cloud API webhook, incl. photo bills (needs a vision key). |
+| Get WhatsApp messages in (easiest first) | (A) **Import chat** from WhatsApp "Export Chat" — works with normal WhatsApp. (B) Paste a message in Inbox. (C) **Automatic** via WhatsApp Business Cloud API webhook, incl. photo bills (needs a vision key). |
 | Text or image bills | Text parsed by rules (English + Roman Urdu); images read by Claude/OpenAI vision. |
 | Separate ledger per vendor | Each vendor has its own entries, running balance, items and source message/image. |
 | Order details | Items, quantity, unit, rate parsed from bills. |
 | Reports | Weekly, monthly, yearly; per vendor or all; credit/debit, opening/closing balance, aging; CSV share + print/PDF. |
+
+## Easiest ways to add bills (no WhatsApp Business needed)
+- **📷 Scan bill** in the Inbox: take a photo / pick a WhatsApp screenshot. The vendor is found from the name on the bill.
+- **iPhone Share menu:** WhatsApp photo or text → Share → KhataLink (3-minute Shortcut setup in the in-app Guide, step 4; needs `CAPTURE_TOKEN`).
+- **Import chat** (Export Chat) for old months, **paste** in the Inbox, or a **Business number** for full automation.
+Photos need `GEMINI_API_KEY` (free). Uploaded photos are stored in the database (~300 KB each) for the audit trail.
 
 ## 1. Try it on your computer (2 minutes)
 ```powershell

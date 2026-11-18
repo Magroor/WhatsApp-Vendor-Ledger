@@ -40,23 +40,65 @@ export default function GuidePage() {
 
       <Step n={3} title="Get bills in — choose the way that fits you">
         <p>
-          <b>A. Normal WhatsApp (easiest, free).</b> In WhatsApp open the vendor chat → tap their
+          <b>A. Scan a bill (easiest).</b> Open the <Link href="/inbox" className="underline">Inbox</Link>{" "}
+          and tap <b>📷 Take photo / choose picture</b>. Choose a vendor, or leave it on “detect
+          automatically” — the vendor name printed on the bill is used. A WhatsApp screenshot works too.
+          The amount, credit/debit and items are read and added for you.
+        </p>
+        <p>
+          <b>B. Share from WhatsApp in 2 taps.</b> Open a bill photo or select a vendor&apos;s message,
+          tap <b>Share</b> and choose <b>KhataLink</b>. One-time setup (3 minutes) is in step 4.
+        </p>
+        <p>
+          <b>C. Import a whole chat.</b> In WhatsApp open the vendor chat → tap their
           name → <b>Export Chat</b> → <b>Without Media</b> → <b>Save to Files</b>. Then open{" "}
           <Link href="/import" className="underline">Import</Link>, pick the vendor and the file, check
-          the list and tap Import. Do this once a week or month.
+          the list and tap Import. Good for catching up on old months.
         </p>
         <p>
-          <b>B. Type or paste one message.</b> In the <Link href="/inbox" className="underline">Inbox</Link>{" "}
-          use the capture box: paste the vendor&apos;s message, like “5 bags cement total 7500 udhaar”.
+          <b>D. Type or paste one message.</b> In the <Link href="/inbox" className="underline">Inbox</Link>{" "}
+          use the capture box: paste the vendor&apos;s message, like “5 hazar rupay mil gaye” or
+          “5 bags cement total 7500 udhaar”.
         </p>
         <p>
-          <b>C. Automatic (WhatsApp Business).</b> Vendors message a business number and bills appear
+          <b>E. Fully automatic (WhatsApp Business number).</b> Vendors message a business number and bills appear
           on their own, including photos of bills. This needs a Meta developer account and a number
-          that is not already used in normal WhatsApp. See step 6.
+          that is not already used in normal WhatsApp. See step 7.
         </p>
       </Step>
 
-      <Step n={4} title="Check the entries">
+      <Step n={4} title="Add “KhataLink” to the iPhone Share menu (3 minutes, once)">
+        <p>
+          Administrator first: in Vercel add the variable <code>CAPTURE_TOKEN</code> with a long random
+          secret and redeploy. Keep it private — anyone with it can add entries.
+        </p>
+        <p>
+          On the iPhone open the <b>Shortcuts</b> app → <b>+</b> and build <b>“KhataLink Photo”</b>:
+        </p>
+        <ol className="list-decimal space-y-1 pl-5">
+          <li>Tap the <b>ⓘ</b> button → turn on <b>Show in Share Sheet</b> → Share Sheet Types: only <b>Images</b>.</li>
+          <li>Add action <b>Resize Image</b> → width <b>1600</b>.</li>
+          <li>Add action <b>Convert Image</b> → <b>JPEG</b>.</li>
+          <li>
+            Add action <b>Get Contents of URL</b>. URL: <code>https://YOUR-ADDRESS/api/capture</code>.
+            Tap <b>Show More</b>: Method <b>POST</b>; Headers → add <b>Authorization</b> with value{" "}
+            <code>Bearer YOUR_CAPTURE_TOKEN</code>; Request Body <b>Form</b> → add a <b>File</b> field named{" "}
+            <code>image</code> = the converted image.
+          </li>
+          <li>Add <b>Get Dictionary Value</b> for key <code>summary</code>, then <b>Show Notification</b> with it.</li>
+        </ol>
+        <p>
+          Build a second shortcut <b>“KhataLink Text”</b> the same way, but Share Sheet Types: <b>Text</b>,
+          skip the two image actions, and add a <b>Text</b> field named <code>text</code> = Shortcut Input.
+        </p>
+        <p>
+          Use it: open a bill photo in WhatsApp → <b>Share</b> → <b>KhataLink Photo</b>. A notification
+          says “Added credit Rs 19,500 to Ahmed Traders”. If the vendor can&apos;t be found, the bill waits
+          in the Inbox under “Unassigned” so you can choose the vendor.
+        </p>
+      </Step>
+
+      <Step n={5} title="Check the entries">
         <p>
           Clear messages are added automatically. Unclear ones wait in the{" "}
           <Link href="/inbox" className="underline">Inbox</Link> under “Needs review” — tap one, correct
@@ -65,7 +107,7 @@ export default function GuidePage() {
         </p>
       </Step>
 
-      <Step n={5} title="Reports">
+      <Step n={6} title="Reports">
         <p>
           Open <Link href="/reports" className="underline">Reports</Link>, choose Weekly, Monthly or
           Yearly, and optionally one vendor. Use <b>Share CSV</b> to send it by WhatsApp or email, or{" "}
@@ -73,7 +115,7 @@ export default function GuidePage() {
         </p>
       </Step>
 
-      <Step n={6} title="Automatic WhatsApp setup (optional)">
+      <Step n={7} title="Automatic WhatsApp setup (optional)">
         <ol className="list-decimal space-y-1 pl-5">
           <li>Create a free app at developers.facebook.com → add the <b>WhatsApp</b> product.</li>
           <li>Add a phone number that is not used in normal WhatsApp.</li>
@@ -90,7 +132,7 @@ export default function GuidePage() {
         </ol>
       </Step>
 
-      <Step n={7} title="Put it online (administrator)">
+      <Step n={8} title="Put it online (administrator)">
         <ol className="list-decimal space-y-1 pl-5">
           <li>Create a free Postgres database (Neon or Supabase) and copy its connection URL.</li>
           <li>
@@ -101,7 +143,7 @@ export default function GuidePage() {
         </ol>
       </Step>
 
-      <Step n={8} title="Good to know">
+      <Step n={9} title="Good to know">
         <ul className="list-disc space-y-1 pl-5">
           <li>iPhone cannot read your personal WhatsApp directly — that is why Import and Business setup exist.</li>
           <li>Money is stored exactly (no rounding drift).</li>

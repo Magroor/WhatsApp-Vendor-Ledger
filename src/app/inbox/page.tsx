@@ -1,5 +1,6 @@
 import Link from "next/link";
 import CaptureForm from "@/components/CaptureForm";
+import ScanBill from "@/components/ScanBill";
 import MessageActions from "@/components/MessageActions";
 import { SyncRetryButton } from "@/components/SyncRetryButton";
 import { Badge, Card, Money, SectionTitle, StatTile } from "@/components/ui";
@@ -65,6 +66,8 @@ export default async function InboxPage({
       </Card>
 
       <SyncRetryButton pending={queued} />
+
+      <ScanBill vendors={data.vendors.map((v) => ({ id: v.id, name: v.name }))} />
 
       <CaptureForm vendors={data.vendors} autoOpen={params.compose === "1"} />
 

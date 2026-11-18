@@ -11,6 +11,7 @@ const PUBLIC = [
   /^\/api\/health$/,
   /^\/login/,
   /^\/api\/login/,
+  /^\/api\/capture/, // does its own auth: login cookie OR bearer token (iPhone Shortcut)
   /^\/_next\//,
   /^\/(manifest\.webmanifest|sw\.js|icon\.png|apple-touch-icon\.png|favicon\.ico)$/,
 ];
