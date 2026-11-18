@@ -20,7 +20,9 @@ const g = globalThis as G;
 
 export const usingEmbedded = !databaseUrl;
 
-const liteDir = process.env.PGLITE_DIR || "./.data/pglite";
+// Hosted serverless disks are read-only except /tmp (and wiped between runs), so
+// the embedded fallback there is only a safety net: set DATABASE_URL for real use.
+const liteDir = process.env.PGLITE_DIR || (process.env.VERCEL ? "/tmp/pglite" : "./.data/pglite");
 if (!databaseUrl) mkdirSync(liteDir, { recursive: true });
 
 export const pool: Pool | undefined = databaseUrl

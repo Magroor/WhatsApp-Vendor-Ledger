@@ -10,12 +10,19 @@ export async function GET() {
     return Response.json({
       status: "ok",
       database: "connected",
+      databaseUrlSet: Boolean(process.env.DATABASE_URL),
+      passwordSet: Boolean(process.env.APP_PASSWORD),
       whatsapp: whatsappConfigured() ? "configured" : "sandbox",
       time: new Date().toISOString(),
     });
   } catch (error) {
     return Response.json(
-      { status: "degraded", database: "error", error: (error as Error).message },
+      {
+        status: "degraded",
+        database: "error",
+        databaseUrlSet: Boolean(process.env.DATABASE_URL),
+        error: (error as Error).message,
+      },
       { status: 500 },
     );
   }
