@@ -296,6 +296,21 @@ export function SeedButton({ hasData }: { hasData: boolean }) {
 
 export function TestWebhookButton({ payload }: { payload: string }) {
   const router = useRouter();
+  const sample = (() => {
+    try {
+      const m = JSON.parse(payload)?.entry?.[0]?.changes?.[0]?.value;
+      return {
+        text: String(m?.messages?.[0]?.text?.body ?? "Bill #9001\n5 bags cement @ 1480\nTotal 7400 udhaar"),
+        from: String(m?.messages?.[0]?.from ?? "923211234501"),
+        name: String(m?.contacts?.[0]?.profile?.name ?? "Ahmed Traders"),
+      };
+    } catch {
+      return { text: "5000 rupay mil gaye", from: "923211234501", name: "Ahmed Traders" };
+    }
+  })();
+  const [text, setText] = useState(sample.text);
+  const [name, setName] = useState(sample.name);
+  const [from, setFrom] = useState(sample.from);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
 
@@ -303,13 +318,17 @@ export function TestWebhookButton({ payload }: { payload: string }) {
     setBusy(true);
     setNote(null);
     try {
-      const res = await fetch("/api/webhook/whatsapp", {
+      const res = await fetch("/api/test-message", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: payload,
+        body: JSON.stringify({ text, from, name }),
       });
       const json = await res.json();
-      setNote(res.ok ? `Webhook accepted · ${json.received ?? 0} message(s)` : `Rejected: ${json.error}`);
+      setNote(
+        res.ok
+          ? "Sent. Open the Inbox or Vendors in a few seconds to see the result."
+          : `Not sent: ${json.error}`,
+      );
       router.refresh();
     } catch (e) {
       setNote((e as Error).message);
@@ -320,8 +339,14 @@ export function TestWebhookButton({ payload }: { payload: string }) {
 
   return (
     <div className="space-y-2">
-      <button className="btn btn-sm btn-primary w-full" onClick={fire} disabled={busy}>
-        {busy ? "Sending…" : "🚀 Send test webhook payload"}
+      <p className="label">Test message (pretend a vendor sent this)</p>
+      <textarea className="field" rows={4} value={text} onChange={(e) => setText(e.target.value)} />
+      <div className="grid grid-cols-2 gap-2">
+        <input className="field" placeholder="Vendor name" value={name} onChange={(e) => setName(e.target.value)} />
+        <input className="field" inputMode="numeric" placeholder="Vendor phone" value={from} onChange={(e) => setFrom(e.target.value)} />
+      </div>
+      <button className="btn btn-sm btn-primary w-full" onClick={fire} disabled={busy || !text.trim()}>
+        {busy ? "Sending…" : "🚀 Send test message"}
       </button>
       {note ? <p className="tiny muted">{note}</p> : null}
     </div>
