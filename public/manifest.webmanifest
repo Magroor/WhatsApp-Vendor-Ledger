@@ -1,0 +1,22 @@
+{
+  "name": "KhataLink — WhatsApp Vendor Ledger",
+  "short_name": "KhataLink",
+  "description": "Automated credit & debit bookkeeping for vendors. WhatsApp bills in, ledgers and reports out.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "fullscreen"],
+  "orientation": "portrait",
+  "background_color": "#05070f",
+  "theme_color": "#05070f",
+  "categories": ["finance", "business", "productivity"],
+  "icons": [
+    { "src": "/icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Capture a bill", "url": "/inbox?compose=1" },
+    { "name": "Vendor ledgers", "url": "/vendors" },
+    { "name": "Monthly report", "url": "/reports?period=monthly" }
+  ]
+}

@@ -1,0 +1,31 @@
+# Render Blueprint — free web service. The database is NOT created here:
+# Render's free Postgres expires after 30 days, so use a free Neon/Supabase
+# database and paste its URL into DATABASE_URL in the Render dashboard.
+services:
+  - type: web
+    name: khatalink
+    runtime: node
+    plan: free
+    region: singapore          # closest to Pakistan/India
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: DATABASE_URL
+        sync: false            # you enter it in the dashboard
+      - key: APP_PASSWORD
+        sync: false
+      - key: BUSINESS_TIMEZONE
+        value: Asia/Karachi
+      - key: WHATSAPP_VERIFY_TOKEN
+        generateValue: true
+      - key: WHATSAPP_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_APP_SECRET
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
