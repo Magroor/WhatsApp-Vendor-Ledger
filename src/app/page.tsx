@@ -1,4 +1,5 @@
 import Link from "next/link";
+import ScanBill from "@/components/ScanBill";
 import { Badge, Card, EmptyState, Money, SectionTitle, StatTile } from "@/components/ui";
 import { formatMinor } from "@/lib/money";
 import { getDashboard } from "@/lib/queries";
@@ -18,6 +19,12 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-5 rise">
+      <ScanBill vendors={data.stats.vendors.map((v) => ({ id: v.id, name: v.name }))} />
+      <Link href="/import" className="card card-press block text-center">
+        <span className="h2">📥 Catch up on old months</span>
+        <span className="tiny muted mt-1 block">Import a whole WhatsApp chat (Export Chat) for past bills</span>
+      </Link>
+
       <Card className="border-indigo-400/30 bg-indigo-500/10">
         <div className="flex items-start justify-between gap-3">
           <div>

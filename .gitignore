@@ -8,3 +8,10 @@ node_modules
 .impeccable
 *.log
 tsconfig.tsbuildinfo
+
+bridge/node_modules
+bridge/.env
+bridge/.wwebjs_auth
+bridge/.wwebjs_cache
+.wwebjs_auth
+.wwebjs_cache

@@ -31,6 +31,7 @@ async function shrink(file: File, maxSide = 1600, quality = 0.82): Promise<Blob>
 export default function ScanBill({ vendors }: { vendors: VendorOption[] }) {
   const router = useRouter();
   const input = useRef<HTMLInputElement>(null);
+  const mode = useRef<"bill" | "chat">("bill");
   const [vendorId, setVendorId] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -44,7 +45,8 @@ export default function ScanBill({ vendors }: { vendors: VendorOption[] }) {
       const form = new FormData();
       if (vendorId) form.set("vendorId", vendorId);
       if (note.trim()) form.set("text", note.trim());
-      for (const f of Array.from(files).slice(0, 4)) {
+      if (mode.current === "chat") form.set("kind", "chat");
+      for (const f of Array.from(files).slice(0, mode.current === "chat" ? 1 : 4)) {
         const small = f.type === "application/pdf" ? f : await shrink(f);
         form.append("image", small, f.type === "application/pdf" ? f.name : "bill.jpg");
       }
@@ -94,14 +96,14 @@ export default function ScanBill({ vendors }: { vendors: VendorOption[] }) {
   return (
     <div className="card space-y-3">
       <div>
-        <p className="h2">📷 Scan a bill</p>
+        <p className="h2">➕ Add bills</p>
         <p className="tiny muted">
-          Take a photo or pick a screenshot of a bill. It is read automatically and added to the ledger.
+          Photo of a bill, a screenshot of a WhatsApp chat, or a copied message: it is read automatically and added to the ledger.
         </p>
       </div>
       <select className="field" value={vendorId} onChange={(e) => setVendorId(e.target.value)}>
         <option value="">Vendor: detect automatically</option>
-        {vendors.map((v) => (
+        {vendors.filter((v) => !v.name.startsWith("Unassigned")).map((v) => (
           <option key={v.id} value={v.id}>
             {v.name}
           </option>
@@ -121,15 +123,33 @@ export default function ScanBill({ vendors }: { vendors: VendorOption[] }) {
         className="hidden"
         onChange={(e) => onPick(e.target.files)}
       />
-      <button className="btn btn-primary w-full" disabled={busy} onClick={() => input.current?.click()}>
-        {busy ? "Reading bill…" : "📷 Take photo / choose picture"}
+      <button
+        className="btn btn-primary w-full"
+        disabled={busy}
+        onClick={() => {
+          mode.current = "bill";
+          input.current?.click();
+        }}
+      >
+        {busy ? "Reading…" : "📷 Take photo / choose picture"}
+      </button>
+      <button
+        className="btn w-full"
+        disabled={busy}
+        onClick={() => {
+          mode.current = "chat";
+          input.current?.click();
+        }}
+      >
+        📱 Add a WhatsApp chat screenshot
       </button>
       <button className="btn w-full" disabled={busy} onClick={pasteAndAdd}>
         📋 Paste copied WhatsApp message
       </button>
       <p className="tiny muted">
-        For text: in WhatsApp press and hold the message → <b>Copy</b> → come here → tap Paste. For photos
-        you can also use Share → KhataLink.
+        <b>Chat screenshot:</b> take a screenshot of the vendor chat in WhatsApp (side button + volume up), then
+        choose it here. Every bill and payment message in it is added; repeats are skipped. For one message:
+        press and hold → <b>Copy</b> → Paste.
       </p>
       {message ? (
         <p className={`rounded-xl p-3 text-sm ${message.ok ? "bg-emerald-500/15 text-emerald-200" : "bg-rose-500/15 text-rose-200"}`}>

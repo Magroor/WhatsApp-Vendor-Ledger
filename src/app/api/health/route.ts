@@ -14,8 +14,11 @@ export async function GET() {
     const t1 = Date.now();
     await db.execute(sql`select 1`);
     const roundTripMs = Date.now() - t1;
+    // Startup swallows migration errors, so check the newest table really exists.
+    const photosTable = await db.execute(sql`select 1 from media_blobs limit 1`).then(() => true, () => false);
     return Response.json({
-      status: "ok",
+      status: photosTable ? "ok" : "degraded",
+      photoStorage: photosTable ? "ready" : "missing (run migrations)",
       database: "connected",
       dbFirstQueryMs: firstMs,
       dbRoundTripMs: roundTripMs, // under ~30 is good; 150+ means server and database are far apart

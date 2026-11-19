@@ -14,6 +14,7 @@ Tracks credit (bills you owe) and debit (payments) for each vendor, from WhatsAp
 ## Easiest ways to add bills (no WhatsApp Business needed)
 - **📷 Scan bill** in the Inbox: take a photo / pick a WhatsApp screenshot. The vendor is found from the name on the bill.
 - **iPhone Share menu:** WhatsApp photo or text → Share → KhataLink (3-minute Shortcut setup in the in-app Guide, step 4; needs `CAPTURE_TOKEN`).
+- **Hands-free PC bridge:** a program on an always-on PC watches your saved vendors' chats (no extra SIM, no Meta). Unofficial, read-only. See `bridge/README.md`.
 - **Import chat** (Export Chat) for old months, **paste** in the Inbox, or a **Business number** for full automation.
 Photos need `GEMINI_API_KEY` (free). Uploaded photos are stored in the database (~300 KB each) for the audit trail.
 

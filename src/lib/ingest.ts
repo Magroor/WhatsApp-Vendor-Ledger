@@ -197,8 +197,9 @@ const GEMINI_MODELS = [
   "gemini-flash-lite-latest",
 ].filter((m, i, all): m is string => Boolean(m) && all.indexOf(m) === i);
 
-async function fetchGemini(base64: string, mime: string): Promise<Response> {
-  const body = JSON.stringify(buildGeminiVisionRequest(base64, mime));
+/** Sends one generateContent request, trying fallback models and retrying brief overloads. */
+export async function fetchGeminiRaw(requestBody: unknown): Promise<Response> {
+  const body = JSON.stringify(requestBody);
   let last: Response | null = null;
   for (let pass = 0; pass < 2; pass += 1) {
     for (const model of GEMINI_MODELS) {
@@ -216,6 +217,10 @@ async function fetchGemini(base64: string, mime: string): Promise<Response> {
     if (pass === 0) await new Promise((r) => setTimeout(r, 1500)); // brief overload: wait, go round once more
   }
   return last as Response;
+}
+
+async function fetchGemini(base64: string, mime: string): Promise<Response> {
+  return fetchGeminiRaw(buildGeminiVisionRequest(base64, mime));
 }
 
 /** Google Gemini (free tier available): bill photos / PDFs -> transcribed text. */

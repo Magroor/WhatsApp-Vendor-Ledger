@@ -1,11 +1,14 @@
+import crypto from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { mediaBlobs, transactions, vendors, waMessages } from "@/db/schema";
 import { clientKey, fail, ok, parseId, rateLimit } from "@/lib/api";
-import { processStoredMessageSafe, setTransactionStatus } from "@/lib/ingest";
+import { findVendorByPhone, processStoredMessageSafe, setTransactionStatus } from "@/lib/ingest";
 import { formatMinor } from "@/lib/money";
 import { captureAuthorized } from "@/lib/session";
 import { getSettings } from "@/lib/settings";
+import { postChatScreenshot } from "@/lib/chatshot-post";
+import { getUnassignedVendorId, matchVendorByText } from "@/lib/vendormatch";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -13,23 +16,14 @@ export const maxDuration = 60;
 const MAX_IMAGE_BYTES = 4_000_000; // Vercel request bodies are capped at ~4.5 MB
 const MAX_FILES = 4;
 const OK_MIME = new Set(["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif", "application/pdf"]);
-const UNASSIGNED = "Unassigned (choose vendor)";
-
-/** Pick an existing vendor whose name appears in the shared text. */
-async function matchVendorByText(text: string): Promise<number | null> {
-  const t = text.toLowerCase();
-  if (!t.trim()) return null;
+/** Vendor phone numbers, so the PC bridge only forwards chats with known vendors. */
+export async function GET(req: Request) {
+  if (!(await captureAuthorized(req))) return fail("unauthorized", 401);
   const rows = await db
-    .select({ id: vendors.id, name: vendors.name })
+    .select({ id: vendors.id, name: vendors.name, phone: vendors.phone })
     .from(vendors)
     .where(eq(vendors.archived, false));
-  const full = rows.filter((v) => v.name.length >= 3 && t.includes(v.name.toLowerCase()));
-  if (full.length === 1) return full[0].id;
-  const byToken = rows.filter((v) => {
-    const first = (v.name.toLowerCase().split(/\s+/)[0] ?? "").replace(/[^a-z0-9]/g, "");
-    return first.length >= 4 && new RegExp(`\\b${first}\\b`).test(t);
-  });
-  return byToken.length === 1 ? byToken[0].id : null;
+  return ok({ vendors: rows.filter((v) => v.phone) });
 }
 
 /**
@@ -43,6 +37,9 @@ export async function POST(req: Request) {
 
   let text = "";
   let vendorIdRaw: string | null = null;
+  let phone: string | null = null;
+  let externalId: string | null = null;
+  let kind: string | null = null;
   const files: File[] = [];
   const ctype = req.headers.get("content-type") ?? "";
   try {
@@ -50,13 +47,23 @@ export async function POST(req: Request) {
       const form = await req.formData();
       text = String(form.get("text") ?? "");
       vendorIdRaw = form.get("vendorId") ? String(form.get("vendorId")) : null;
+      phone = form.get("phone") ? String(form.get("phone")) : null;
+      externalId = form.get("externalId") ? String(form.get("externalId")) : null;
+      kind = form.get("kind") ? String(form.get("kind")) : null;
       for (const key of ["image", "file", "images"]) {
         for (const v of form.getAll(key)) if (typeof v !== "string") files.push(v);
       }
     } else {
-      const json = (await req.json()) as { text?: string; vendorId?: number | string };
+      const json = (await req.json()) as {
+        text?: string;
+        vendorId?: number | string;
+        phone?: string;
+        externalId?: string;
+      };
       text = String(json.text ?? "");
       vendorIdRaw = json.vendorId ? String(json.vendorId) : null;
+      phone = json.phone ? String(json.phone) : null;
+      externalId = json.externalId ? String(json.externalId) : null;
     }
   } catch {
     return fail("Could not read the upload.");
@@ -69,8 +76,28 @@ export async function POST(req: Request) {
     if (f.size > MAX_IMAGE_BYTES) return fail("Photo is too large (max 4 MB). Use a smaller picture.", 413);
   }
 
+  // Screenshot of a whole chat: read every message in it (see lib/chatshot-post).
+  if (kind === "chat") {
+    if (!files.length) return fail("Attach a screenshot of the chat.");
+    const out = await postChatScreenshot(files[0], parseId(vendorIdRaw));
+    if (!out.ok) return fail(out.summary, out.status);
+    return ok({ summary: out.summary, added: out.added, duplicates: out.duplicates, vendor: out.vendor, needsVendor: out.needsVendor }, out.status);
+  }
+
+  // Bridge messages carry a stable id: never process the same WhatsApp message twice.
+  const waId = externalId ? `bridge-${externalId.slice(0, 120)}` : null;
+  if (waId) {
+    const seen = await db.select({ id: waMessages.id }).from(waMessages).where(eq(waMessages.waMessageId, waId)).limit(1);
+    if (seen[0]) return ok({ summary: "Already added.", duplicate: true, results: [] });
+  }
+
   const settings = await getSettings();
   let vendorId = parseId(vendorIdRaw);
+  if (!vendorId && phone) {
+    const byPhone = await findVendorByPhone(phone);
+    if (byPhone) vendorId = byPhone.id;
+    else if (waId) return ok({ summary: "Skipped: not a saved vendor.", skipped: true, results: [] });
+  }
   if (vendorId) {
     const exists = await db.select({ id: vendors.id }).from(vendors).where(eq(vendors.id, vendorId)).limit(1);
     if (!exists[0]) vendorId = null;
@@ -78,15 +105,7 @@ export async function POST(req: Request) {
   if (!vendorId) vendorId = await matchVendorByText(text);
   let unassigned = false;
   if (!vendorId) {
-    const found = await db.select({ id: vendors.id }).from(vendors).where(eq(vendors.name, UNASSIGNED)).limit(1);
-    if (found[0]) vendorId = found[0].id;
-    else {
-      const created = await db
-        .insert(vendors)
-        .values({ name: UNASSIGNED, currency: settings.currency, autoCreateSource: "capture", needsReview: true })
-        .returning({ id: vendors.id });
-      vendorId = created[0].id;
-    }
+    vendorId = await getUnassignedVendorId(settings.currency);
     unassigned = true;
   }
   const vendorRow = (await db.select().from(vendors).where(eq(vendors.id, vendorId)).limit(1))[0];
@@ -97,8 +116,21 @@ export async function POST(req: Request) {
   for (const { file } of jobs) {
     let mediaId: string | null = null;
     let mime: string | null = null;
+    let imageKey: string | null = null;
     if (file) {
       const bytes = Buffer.from(await file.arrayBuffer());
+      // The same picture is never added twice (an automation may re-send it).
+      const key = `img-${crypto.createHash("sha256").update(bytes).digest("hex").slice(0, 32)}`;
+      const prior = (await db
+        .select({ parseStatus: waMessages.parseStatus })
+        .from(waMessages)
+        .where(eq(waMessages.waMessageId, key))
+        .limit(1))[0];
+      if (prior && prior.parseStatus !== "failed") {
+        results.push({ status: "duplicate", amount: null, entryType: null, vendor: vendorRow.name, needsVendor: false, duplicate: true });
+        continue;
+      }
+      if (!prior) imageKey = key;
       mime = (file.type || "image/jpeg").toLowerCase();
       const blob = await db
         .insert(mediaBlobs)
@@ -109,7 +141,7 @@ export async function POST(req: Request) {
     const inserted = await db
       .insert(waMessages)
       .values({
-        waMessageId: `upload-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        waMessageId: waId ?? imageKey ?? `upload-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
         vendorId,
         direction: "in",
         messageType: file ? (mime === "application/pdf" ? "document" : "image") : "text",
@@ -166,7 +198,8 @@ export async function POST(req: Request) {
     });
   }
 
-  const first = results[0];
+  if (results.every((r) => r.duplicate)) return ok({ summary: "Already added.", duplicate: true, results, needsVendor: false });
+  const first = results.find((r) => !r.duplicate) ?? results[0];
   const needsVendor = results.some((r) => r.needsVendor);
   const summary = first.amount
     ? first.needsVendor
@@ -174,6 +207,8 @@ export async function POST(req: Request) {
       : first.status === "review"
         ? `Read ${first.amount} (${first.entryType}) for ${first.vendor}. Please confirm it in Inbox.`
         : `Added ${first.entryType} ${first.amount} to ${first.vendor}.`
-    : "Saved, but no amount was found. Open Inbox, Needs review.";
+    : first.status === "ignored"
+      ? "Chat message, nothing to add."
+      : "Saved, but no amount was found. Open Inbox, Needs review.";
   return ok({ summary, results, needsVendor }, 201);
 }

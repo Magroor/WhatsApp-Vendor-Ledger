@@ -52,18 +52,24 @@ export default function GuidePage() {
           the bill → <b>Share</b> → <b>KhataLink</b> (one-time setup in step 4).
         </p>
         <p>
-          <b>C. Import a whole chat.</b> In WhatsApp open the vendor chat → tap their
+          <b>C. Hands-free from your normal WhatsApp (computer bridge).</b> A small program on a PC that
+          stays on watches your saved vendors&apos; chats and adds new bills and photos by itself — no
+          second SIM and no Meta account. It is unofficial (against WhatsApp&apos;s terms) and read-only.
+          Setup guide: the <code>bridge</code> folder in the project, file <code>README.md</code>.
+        </p>
+        <p>
+          <b>D. Import a whole chat.</b> In WhatsApp open the vendor chat → tap their
           name → <b>Export Chat</b> → <b>Without Media</b> → <b>Save to Files</b>. Then open{" "}
           <Link href="/import" className="underline">Import</Link>, pick the vendor and the file, check
           the list and tap Import. Good for catching up on old months.
         </p>
         <p>
-          <b>D. Type or paste one message.</b> In the <Link href="/inbox" className="underline">Inbox</Link>{" "}
+          <b>E. Type or paste one message.</b> In the <Link href="/inbox" className="underline">Inbox</Link>{" "}
           use the capture box: paste the vendor&apos;s message, like “5 hazar rupay mil gaye” or
           “5 bags cement total 7500 udhaar”.
         </p>
         <p>
-          <b>E. Fully automatic (WhatsApp Business number).</b> Vendors message a business number and bills appear
+          <b>F. Official automatic (WhatsApp Business number).</b> Vendors message a business number and bills appear
           on their own, including photos of bills. This needs a Meta developer account and a number
           that is not already used in normal WhatsApp. See step 7.
         </p>
