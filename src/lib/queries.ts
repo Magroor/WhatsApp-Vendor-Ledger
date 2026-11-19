@@ -318,6 +318,7 @@ export async function getInbox(status?: string) {
       parseStatus: waMessages.parseStatus,
       parseConfidence: waMessages.parseConfidence,
       extractionSource: waMessages.extractionSource,
+      parsePayload: waMessages.parsePayload,
       transactionId: transactions.id,
       txEntryType: transactions.entryType,
       txAmountMinor: transactions.amountMinor,

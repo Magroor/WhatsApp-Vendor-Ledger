@@ -2,6 +2,7 @@ import Link from "next/link";
 import CaptureForm from "@/components/CaptureForm";
 import ScanBill from "@/components/ScanBill";
 import MessageActions from "@/components/MessageActions";
+import QuickResolve from "@/components/QuickResolve";
 import { SyncRetryButton } from "@/components/SyncRetryButton";
 import { Badge, Card, Money, SectionTitle, StatTile } from "@/components/ui";
 import { formatMinor } from "@/lib/money";
@@ -9,6 +10,21 @@ import { getInbox } from "@/lib/queries";
 import { fmtDateTime, timeAgo } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
+
+type InboxRow = Awaited<ReturnType<typeof getInbox>>["messages"][number];
+
+/** Amount the app read for this message: the entry's amount, else what the parser found. */
+function quickAmount(m: InboxRow): number | null {
+  if (m.txAmountMinor) return m.txAmountMinor;
+  const p = m.parsePayload as { amountMinor?: number | null } | null;
+  return typeof p?.amountMinor === "number" && p.amountMinor > 0 ? p.amountMinor : null;
+}
+
+/** True when nothing on the bill said credit/debit and the app guessed. */
+function directionAssumed(m: InboxRow): boolean {
+  const p = m.parsePayload as { notes?: string[]; entryType?: string | null } | null;
+  return Boolean(p?.notes?.includes("direction-assumed-credit")) || (!m.txEntryType && !p?.entryType);
+}
 
 const FILTERS = [
   { key: "all", label: "All" },
@@ -170,6 +186,20 @@ export default async function InboxPage({
                   </Link>
                 ) : null}
               </div>
+
+              {m.direction === "in" && m.txStatus !== "void" && (m.parseStatus === "review" || m.txStatus === "draft") && quickAmount(m) ? (
+                <QuickResolve
+                  key={`${m.id}-${m.txStatus}-${m.vendorId}`}
+                  messageId={m.id}
+                  vendors={data.vendors.map((v) => ({ id: v.id, name: v.name }))}
+                  vendorId={m.vendorId}
+                  vendorName={m.vendorName}
+                  amountMinor={quickAmount(m)}
+                  entryType={m.txEntryType === "credit" || m.txEntryType === "debit" ? m.txEntryType : null}
+                  assumed={directionAssumed(m)}
+                  currency={m.txCurrency ?? "PKR"}
+                />
+              ) : null}
 
               {m.direction === "in" ? (
                 <MessageActions messageId={m.id} parseStatus={m.parseStatus} hasTransaction={m.transactionId !== null} />

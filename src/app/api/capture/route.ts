@@ -193,8 +193,15 @@ export async function POST(req: Request) {
       await setTransactionStatus(tx.id, "draft");
       await db.update(waMessages).set({ parseStatus: "review" }).where(eq(waMessages.id, messageId));
     }
+    const payload = (await db.select({ p: waMessages.parsePayload }).from(waMessages).where(eq(waMessages.id, messageId)).limit(1))[0]?.p as
+      | { notes?: string[] }
+      | null
+      | undefined;
     results.push({
       messageId,
+      vendorId: msgVendor.id,
+      amountMinor: tx ? Number(tx.amountMinor) : null,
+      assumedDirection: Boolean(payload?.notes?.includes("direction-assumed-credit")),
       status: msgUnassigned && tx ? "review" : tx && tx.status !== "confirmed" ? "review" : outcome.status,
       entryType: tx?.entryType ?? null,
       amount: tx ? formatMinor(Number(tx.amountMinor), tx.currency) : null,

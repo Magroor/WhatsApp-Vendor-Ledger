@@ -1,3 +1,4 @@
+import ResetData from "@/components/ResetData";
 import { SeedButton, SelfTestPanel, SettingsForm, TestWebhookButton } from "@/components/SettingsClient";
 import { Badge, Card, SectionTitle, StatTile } from "@/components/ui";
 import { getAuditTrail, getStaleMessageCount, getVendorsList } from "@/lib/queries";
@@ -102,6 +103,8 @@ export default async function SettingsPage() {
       </Card>
 
       <SeedButton hasData={vendorCount > 0} />
+
+      <ResetData />
 
       <Card className="border-white/5">
         <SectionTitle title="Recent audit events" hint="Append-only trail" />

@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
+import QuickResolve from "@/components/QuickResolve";
 
 type VendorOption = { id: number; name: string };
 
@@ -36,6 +37,13 @@ export default function ScanBill({ vendors }: { vendors: VendorOption[] }) {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [resolve, setResolve] = useState<{
+    messageId: number;
+    vendorId: number | null;
+    vendorName: string | null;
+    amountMinor: number | null;
+    assumed: boolean;
+  } | null>(null);
 
   async function onPick(files: FileList | null) {
     if (!files?.length) return;
@@ -54,6 +62,19 @@ export default function ScanBill({ vendors }: { vendors: VendorOption[] }) {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Upload failed");
       setMessage({ ok: true, text: json.summary });
+      // One bill that still needs a decision (bill or payment? which vendor?): ask right here.
+      const r = Array.isArray(json.results) && json.results.length === 1 ? json.results[0] : null;
+      setResolve(
+        r && r.messageId && r.amountMinor && (r.assumedDirection || r.needsVendor || r.status === "review")
+          ? {
+              messageId: r.messageId,
+              vendorId: r.needsVendor ? null : (r.vendorId ?? null),
+              vendorName: r.vendor ?? null,
+              amountMinor: r.amountMinor,
+              assumed: Boolean(r.assumedDirection),
+            }
+          : null,
+      );
       setNote("");
       router.refresh();
     } catch (e) {
@@ -151,6 +172,19 @@ export default function ScanBill({ vendors }: { vendors: VendorOption[] }) {
         choose it here. Every bill and payment message in it is added; repeats are skipped. For one message:
         press and hold → <b>Copy</b> → Paste.
       </p>
+      {resolve ? (
+        <QuickResolve
+          key={resolve.messageId}
+          messageId={resolve.messageId}
+          vendors={vendors}
+          vendorId={resolve.vendorId}
+          vendorName={resolve.vendorName}
+          amountMinor={resolve.amountMinor}
+          entryType={null}
+          assumed={resolve.assumed}
+          onSaved={() => setMessage(null)}
+        />
+      ) : null}
       {message ? (
         <p className={`rounded-xl p-3 text-sm ${message.ok ? "bg-emerald-500/15 text-emerald-200" : "bg-rose-500/15 text-rose-200"}`}>
           {message.text}
