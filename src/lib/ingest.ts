@@ -189,7 +189,7 @@ export function readOpenAIText(json: unknown): { text: string | null; note?: str
 
 // Google retires Gemini models regularly (2.5 is already closed to new accounts),
 // so try the always-current alias first, then newer/lighter models as fallbacks.
-const GEMINI_MODELS = [
+export const GEMINI_MODELS = [
   process.env.GEMINI_MODEL,
   "gemini-flash-latest",
   "gemini-3.5-flash",

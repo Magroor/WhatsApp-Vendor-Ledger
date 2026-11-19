@@ -96,6 +96,14 @@ export default function GuidePage() {
           <li>Add <b>Get Dictionary Value</b> for key <code>summary</code>, then <b>Show Notification</b> with it.</li>
         </ol>
         <p>
+          <b>Optional second shortcut, “KhataLink Import”</b> (no more hunting for exported files): build it the
+          same way, but Share Sheet Types: <b>Files</b>; skip the two image actions; in <b>Get Contents of URL</b>{" "}
+          use <code>https://YOUR-ADDRESS/api/import-file</code>, Method <b>POST</b>, the same Authorization header, Request
+          Body <b>Form</b> with a <b>File</b> field named <code>file</code> = Shortcut Input. Then in WhatsApp:
+          vendor chat → name → <b>Export Chat</b> → <b>Without Media</b> → <b>KhataLink Import</b>. The vendor comes from
+          the file name; repeats are skipped.
+        </p>
+        <p>
           Use it for photos and PDFs: open the bill in WhatsApp → tap the <b>Share</b> icon → <b>KhataLink Photo</b>.
           (Text messages can&apos;t be shared from WhatsApp — use Copy, then Paste in the app.) A notification
           says “Added credit Rs 19,500 to Ahmed Traders”. If the vendor can&apos;t be found, the bill waits

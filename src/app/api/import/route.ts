@@ -3,7 +3,7 @@ import { db } from "@/db";
 import { vendors, waMessages } from "@/db/schema";
 import { clientKey, fail, ok, rateLimit, readJson } from "@/lib/api";
 import { draftsFromChat, parseChatExport } from "@/lib/chatimport";
-import { postParsedDraft } from "@/lib/ingest";
+import { postChatImport } from "@/lib/chatimport-post";
 import { getSettings } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
@@ -60,65 +60,14 @@ export async function POST(req: Request) {
     });
   }
 
-  let vendorId = body.vendorId ?? null;
-  if (!vendorId) {
-    const name = body.newVendorName?.trim();
-    if (!name) return fail("Pick a vendor or type a new vendor name.");
-    const created = await db
-      .insert(vendors)
-      .values({
-        name,
-        phone: body.newVendorPhone?.trim() || null,
-        currency: settings.currency,
-        creditTermsDays: settings.defaultTermDays,
-        autoCreateSource: "import",
-      })
-      .returning();
-    vendorId = created[0].id;
-  }
-  const vendorRow = await db.select().from(vendors).where(eq(vendors.id, vendorId)).limit(1);
-  const vendor = vendorRow[0];
-  if (!vendor) return fail("vendor not found", 404);
-
-  const skip = new Set(body.skip ?? []);
-  let imported = 0;
-  let duplicates = 0;
-  for (const e of postable) {
-    if (skip.has(e.hash)) continue;
-    const inserted = await db
-      .insert(waMessages)
-      .values({
-        waMessageId: `import-${vendor.id}-${e.hash}`,
-        vendorId: vendor.id,
-        direction: "in",
-        messageType: "text",
-        body: e.text,
-        fromPhone: vendor.phone,
-        profileName: e.sender,
-        receivedAt: e.at,
-        parseStatus: "parsed",
-        parseConfidence: e.draft.confidence,
-        parsePayload: e.draft as never,
-        extractionSource: "import",
-      })
-      .onConflictDoNothing()
-      .returning({ id: waMessages.id });
-    if (!inserted[0]) {
-      duplicates += 1;
-      continue;
-    }
-    await postParsedDraft({
-      draft: e.draft,
-      vendorId: vendor.id,
-      currency: vendor.currency,
-      defaultTermDays: vendor.creditTermsDays,
-      autoConfirmThreshold: settings.autoConfirmThreshold,
-      messageId: inserted[0].id,
-      source: "import",
-      actor: "import",
-      occurredAtFallback: e.at,
-    });
-    imported += 1;
-  }
-  return ok({ imported, duplicates, vendorId: vendor.id });
+  const created = await postChatImport({
+    text,
+    vendorId: body.vendorId ?? null,
+    vendorName: body.newVendorName?.trim() || null,
+    vendorPhone: body.newVendorPhone ?? null,
+    skip: new Set(body.skip ?? []),
+    dayFirst: body.dayFirst,
+  });
+  if ("error" in created) return fail(created.error);
+  return ok({ imported: created.imported, duplicates: created.duplicates, vendorId: created.vendorId });
 }
