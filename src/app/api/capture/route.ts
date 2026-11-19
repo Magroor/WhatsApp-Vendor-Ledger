@@ -122,11 +122,16 @@ export async function POST(req: Request) {
       // The same picture is never added twice (an automation may re-send it).
       const key = `img-${crypto.createHash("sha256").update(bytes).digest("hex").slice(0, 32)}`;
       const prior = (await db
-        .select({ parseStatus: waMessages.parseStatus })
+        .select({ id: waMessages.id })
         .from(waMessages)
         .where(eq(waMessages.waMessageId, key))
         .limit(1))[0];
-      if (prior && prior.parseStatus !== "failed") {
+      // Only a picture that already produced an entry is a duplicate; an earlier attempt that
+      // failed, timed out or found no amount must stay retryable.
+      const priorEntry = prior
+        ? (await db.select({ id: transactions.id }).from(transactions).where(eq(transactions.messageId, prior.id)).limit(1))[0]
+        : undefined;
+      if (priorEntry) {
         results.push({ status: "duplicate", amount: null, entryType: null, vendor: vendorRow.name, needsVendor: false, duplicate: true });
         continue;
       }

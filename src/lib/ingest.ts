@@ -197,26 +197,38 @@ export const GEMINI_MODELS = [
   "gemini-flash-lite-latest",
 ].filter((m, i, all): m is string => Boolean(m) && all.indexOf(m) === i);
 
-/** Sends one generateContent request, trying fallback models and retrying brief overloads. */
-export async function fetchGeminiRaw(requestBody: unknown): Promise<Response> {
+/**
+ * Sends one generateContent request, trying fallback models. Every attempt has its own
+ * timeout and the whole call has a deadline, so a slow/overloaded Google never keeps
+ * the upload hanging past the host's 60 s limit.
+ */
+export async function fetchGeminiRaw(requestBody: unknown, budgetMs = 45_000): Promise<Response> {
   const body = JSON.stringify(requestBody);
+  const deadline = Date.now() + budgetMs;
   let last: Response | null = null;
   for (let pass = 0; pass < 2; pass += 1) {
     for (const model of GEMINI_MODELS) {
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-        method: "POST",
-        headers: { "content-type": "application/json", "x-goog-api-key": String(process.env.GEMINI_API_KEY) },
-        body,
-        cache: "no-store",
-      });
-      if (res.ok) return res;
-      last = res;
-      // Wrong key / bad request will not improve on another model.
-      if (res.status === 400 || res.status === 401 || res.status === 403) return res;
+      const remaining = deadline - Date.now();
+      if (remaining < 4_000) return last ?? new Response("timeout", { status: 504 });
+      try {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-goog-api-key": String(process.env.GEMINI_API_KEY) },
+          body,
+          cache: "no-store",
+          signal: AbortSignal.timeout(Math.min(22_000, remaining)),
+        });
+        if (res.ok) return res;
+        last = res;
+        // Wrong key / bad request will not improve on another model.
+        if (res.status === 400 || res.status === 401 || res.status === 403) return res;
+      } catch {
+        last = new Response("timeout", { status: 504 }); // this model was too slow: try the next one
+      }
     }
-    if (pass === 0) await new Promise((r) => setTimeout(r, 1500)); // brief overload: wait, go round once more
+    if (pass === 0 && deadline - Date.now() > 8_000) await new Promise((r) => setTimeout(r, 1500));
   }
-  return last as Response;
+  return last ?? new Response("timeout", { status: 504 });
 }
 
 async function fetchGemini(base64: string, mime: string): Promise<Response> {
@@ -731,6 +743,14 @@ export async function processStoredMessage(
       defaultTermDays: termDays,
       senderName: row.profileName,
     });
+    // A photographed/forwarded bill that states an amount but no direction (e.g. an Urdu bill
+    // with no "udhaar" word) is almost always a purchase on credit. Post it as a low-confidence
+    // credit so it lands in Needs review as a draft instead of being lost.
+    if (!draft.entryType && draft.amountMinor && (row.messageType === "image" || row.messageType === "document")) {
+      draft.entryType = "credit";
+      draft.confidence = Math.min(draft.confidence, 60);
+      draft.notes.push("direction-assumed-credit");
+    }
     const retryable = Boolean(extract && !extract.text && extract.retryable);
 
     if (!sourceText.trim()) {
