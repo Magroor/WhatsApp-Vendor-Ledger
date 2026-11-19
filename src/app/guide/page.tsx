@@ -46,8 +46,10 @@ export default function GuidePage() {
           The amount, credit/debit and items are read and added for you.
         </p>
         <p>
-          <b>B. Share from WhatsApp in 2 taps.</b> Open a bill photo or select a vendor&apos;s message,
-          tap <b>Share</b> and choose <b>KhataLink</b>. One-time setup (3 minutes) is in step 4.
+          <b>B. Text messages: Copy, then Paste.</b> WhatsApp has no Share button for text. Press and hold
+          the vendor&apos;s message → <b>Copy</b>. Open KhataLink → Inbox → tap{" "}
+          <b>📋 Paste copied WhatsApp message</b> (allow “Paste” the first time). <b>Photos and PDFs:</b> open
+          the bill → <b>Share</b> → <b>KhataLink</b> (one-time setup in step 4).
         </p>
         <p>
           <b>C. Import a whole chat.</b> In WhatsApp open the vendor chat → tap their
@@ -67,7 +69,7 @@ export default function GuidePage() {
         </p>
       </Step>
 
-      <Step n={4} title="Add “KhataLink” to the iPhone Share menu (3 minutes, once)">
+      <Step n={4} title="Share bill photos straight from WhatsApp (optional, 3 minutes, once)">
         <p>
           Administrator first: in Vercel add the variable <code>CAPTURE_TOKEN</code> with a long random
           secret and redeploy. Keep it private — anyone with it can add entries.
@@ -88,11 +90,8 @@ export default function GuidePage() {
           <li>Add <b>Get Dictionary Value</b> for key <code>summary</code>, then <b>Show Notification</b> with it.</li>
         </ol>
         <p>
-          Build a second shortcut <b>“KhataLink Text”</b> the same way, but Share Sheet Types: <b>Text</b>,
-          skip the two image actions, and add a <b>Text</b> field named <code>text</code> = Shortcut Input.
-        </p>
-        <p>
-          Use it: open a bill photo in WhatsApp → <b>Share</b> → <b>KhataLink Photo</b>. A notification
+          Use it for photos and PDFs: open the bill in WhatsApp → tap the <b>Share</b> icon → <b>KhataLink Photo</b>.
+          (Text messages can&apos;t be shared from WhatsApp — use Copy, then Paste in the app.) A notification
           says “Added credit Rs 19,500 to Ahmed Traders”. If the vendor can&apos;t be found, the bill waits
           in the Inbox under “Unassigned” so you can choose the vendor.
         </p>

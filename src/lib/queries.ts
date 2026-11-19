@@ -20,28 +20,11 @@ export function businessTimeZone(settings?: Partial<AppSettingsShape> | null): s
 }
 
 export async function getDashboard() {
-  const settings = await getSettings();
-  const stats = await dashboardStats();
+  const [settings, stats] = await Promise.all([getSettings(), dashboardStats()]);
   const tz = businessTimeZone(settings);
-  const week = periodRange("weekly", new Date(), tz);
-  const weekRows = await loadLedgerRows({ start: week.start, endExclusive: week.endExclusive });
-  const totals = weekRows.reduce(
-    (acc, r) => {
-      if (r.entryType === "credit") acc.credit += r.amountMinor;
-      else acc.debit += r.amountMinor;
-      return acc;
-    },
-    { credit: 0, debit: 0 },
-  );
-
-  const payable = stats.vendors
-    .filter((v) => v.balanceMinor > 0)
-    .reduce((a, v) => a + v.balanceMinor, 0);
-  const receivable = stats.vendors
-    .filter((v) => v.balanceMinor < 0)
-    .reduce((a, v) => a + Math.abs(v.balanceMinor), 0);
-
-  const recent = await db
+  // Started now so they run alongside the week query instead of after it.
+  const recentP = Promise.resolve(
+    db
     .select({
       id: transactions.id,
       vendorId: transactions.vendorId,
@@ -60,9 +43,10 @@ export async function getDashboard() {
     .innerJoin(vendors, eq(vendors.id, transactions.vendorId))
     .where(inArray(transactions.status, ["confirmed", "draft"]))
     .orderBy(desc(transactions.occurredAt))
-    .limit(6);
-
-  const inbox = await db
+    .limit(6),
+  );
+  const inboxP = Promise.resolve(
+    db
     .select({
       id: waMessages.id,
       vendorId: waMessages.vendorId,
@@ -77,7 +61,29 @@ export async function getDashboard() {
     .from(waMessages)
     .leftJoin(vendors, eq(vendors.id, waMessages.vendorId))
     .orderBy(desc(waMessages.receivedAt))
-    .limit(5);
+    .limit(5),
+  );
+  const week = periodRange("weekly", new Date(), tz);
+  const weekRows = await loadLedgerRows({ start: week.start, endExclusive: week.endExclusive });
+  const totals = weekRows.reduce(
+    (acc, r) => {
+      if (r.entryType === "credit") acc.credit += r.amountMinor;
+      else acc.debit += r.amountMinor;
+      return acc;
+    },
+    { credit: 0, debit: 0 },
+  );
+
+  const payable = stats.vendors
+    .filter((v) => v.balanceMinor > 0)
+    .reduce((a, v) => a + v.balanceMinor, 0);
+  const receivable = stats.vendors
+    .filter((v) => v.balanceMinor < 0)
+    .reduce((a, v) => a + Math.abs(v.balanceMinor), 0);
+
+  const recent = await recentP;
+
+  const inbox = await inboxP;
 
   const topVendors = [...stats.vendors]
     .sort((a, b) => Math.abs(b.balanceMinor) - Math.abs(a.balanceMinor))
@@ -96,11 +102,20 @@ export async function getDashboard() {
 }
 
 export async function getVendorsList(query?: string) {
-  const settings = await getSettings();
-  const stats = await dashboardStats();
-  const [rows, openings] = await Promise.all([
+  // All five reads are independent: run them together (one round trip of latency).
+  const [settings, stats, rows, openings, messageCounts] = await Promise.all([
+    getSettings(),
+    dashboardStats(),
     loadLedgerRows({ statuses: ["confirmed"] }),
     loadOpeningBalances(),
+    db
+    .select({
+      vendorId: waMessages.vendorId,
+      count: sql<number>`count(*)::int`,
+      pending: sql<number>`sum(case when ${waMessages.parseStatus} in ('pending','review') then 1 else 0 end)::int`,
+    })
+    .from(waMessages)
+    .groupBy(waMessages.vendorId),
   ]);
   const lots = computeOpenLots(rows, new Date(), { openings, timeZone: businessTimeZone(settings) });
   const overdueByVendor = new Map<number, { amountMinor: number; oldestDays: number }>();
@@ -111,14 +126,6 @@ export async function getVendorsList(query?: string) {
     overdueByVendor.set(lot.vendorId, entry);
   }
 
-  const messageCounts = await db
-    .select({
-      vendorId: waMessages.vendorId,
-      count: sql<number>`count(*)::int`,
-      pending: sql<number>`sum(case when ${waMessages.parseStatus} in ('pending','review') then 1 else 0 end)::int`,
-    })
-    .from(waMessages)
-    .groupBy(waMessages.vendorId);
 
   const q = query?.trim().toLowerCase();
   const list = stats.vendors

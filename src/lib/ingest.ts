@@ -1154,7 +1154,7 @@ export async function setTransactionStatus(id: number, status: "draft" | "confir
 }
 
 export async function dashboardStats() {
-  const vendorRows = await db
+  const vendorRowsQ = db
     .select({
       id: vendors.id,
       name: vendors.name,
@@ -1169,7 +1169,7 @@ export async function dashboardStats() {
     .from(vendors)
     .where(eq(vendors.archived, false));
 
-  const activityRows = await db
+  const activityRowsQ = db
     .select({
       vendorId: transactions.vendorId,
       last: sql<string>`max(${transactions.occurredAt})`,
@@ -1178,7 +1178,7 @@ export async function dashboardStats() {
     .where(eq(transactions.status, "confirmed"))
     .groupBy(transactions.vendorId);
 
-  const totals = await db
+  const totalsQ = db
     .select({
       vendorId: transactions.vendorId,
       entryType: transactions.entryType,
@@ -1189,6 +1189,31 @@ export async function dashboardStats() {
     .where(eq(transactions.status, "confirmed"))
     .groupBy(transactions.vendorId, transactions.entryType);
 
+  const pendingMessagesQ = db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(waMessages)
+    .where(inArray(waMessages.parseStatus, ["pending", "processing", "review"]));
+
+  const lastMessageQ = db
+    .select({ receivedAt: waMessages.receivedAt, profileName: waMessages.profileName })
+    .from(waMessages)
+    .orderBy(desc(waMessages.receivedAt))
+    .limit(1);
+
+  const auditCountQ = db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(auditEvents);
+
+  // One round trip's worth of latency instead of six: the queries are independent.
+  const [vendorRows, activityRows, totals, pendingMessages, lastMessage, auditCount] = await Promise.all([
+    vendorRowsQ,
+    activityRowsQ,
+    totalsQ,
+    pendingMessagesQ,
+    lastMessageQ,
+    auditCountQ,
+  ]);
+
   const map = new Map<number, { credit: number; debit: number; count: number }>();
   for (const row of totals) {
     const entry = map.get(row.vendorId) ?? { credit: 0, debit: 0, count: 0 };
@@ -1197,21 +1222,6 @@ export async function dashboardStats() {
     entry.count += row.count;
     map.set(row.vendorId, entry);
   }
-
-  const pendingMessages = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(waMessages)
-    .where(inArray(waMessages.parseStatus, ["pending", "processing", "review"]));
-
-  const lastMessage = await db
-    .select({ receivedAt: waMessages.receivedAt, profileName: waMessages.profileName })
-    .from(waMessages)
-    .orderBy(desc(waMessages.receivedAt))
-    .limit(1);
-
-  const auditCount = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(auditEvents);
 
   return {
     vendors: vendorRows.map((v) => {

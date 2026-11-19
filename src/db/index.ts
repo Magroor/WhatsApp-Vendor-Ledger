@@ -26,7 +26,7 @@ const liteDir = process.env.PGLITE_DIR || (process.env.VERCEL ? "/tmp/pglite" : 
 if (!databaseUrl) mkdirSync(liteDir, { recursive: true });
 
 export const pool: Pool | undefined = databaseUrl
-  ? (g.__ledgerPool ?? (g.__ledgerPool = new Pool({ connectionString: databaseUrl })))
+  ? (g.__ledgerPool ?? (g.__ledgerPool = new Pool({ connectionString: databaseUrl, max: 5, idleTimeoutMillis: 10_000, connectionTimeoutMillis: 15_000 })))
   : undefined;
 
 export const lite: PGlite | undefined = databaseUrl

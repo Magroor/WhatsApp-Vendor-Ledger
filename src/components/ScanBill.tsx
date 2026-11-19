@@ -62,6 +62,35 @@ export default function ScanBill({ vendors }: { vendors: VendorOption[] }) {
     }
   }
 
+  /** WhatsApp text has no Share option: copy the message, then tap this. */
+  async function pasteAndAdd() {
+    setBusy(true);
+    setMessage(null);
+    try {
+      let clip = "";
+      try {
+        clip = (await navigator.clipboard.readText()).trim();
+      } catch {
+        throw new Error("Allow “Paste” when iPhone asks, or paste the message in the box below.");
+      }
+      if (!clip) throw new Error("Nothing copied yet. In WhatsApp, press and hold a message, then tap Copy.");
+      const res = await fetch("/api/capture", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: [note.trim(), clip].filter(Boolean).join("\n"), vendorId: vendorId || undefined }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Could not add it");
+      setMessage({ ok: true, text: json.summary });
+      setNote("");
+      router.refresh();
+    } catch (e) {
+      setMessage({ ok: false, text: (e as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="card space-y-3">
       <div>
@@ -95,6 +124,13 @@ export default function ScanBill({ vendors }: { vendors: VendorOption[] }) {
       <button className="btn btn-primary w-full" disabled={busy} onClick={() => input.current?.click()}>
         {busy ? "Reading bill…" : "📷 Take photo / choose picture"}
       </button>
+      <button className="btn w-full" disabled={busy} onClick={pasteAndAdd}>
+        📋 Paste copied WhatsApp message
+      </button>
+      <p className="tiny muted">
+        For text: in WhatsApp press and hold the message → <b>Copy</b> → come here → tap Paste. For photos
+        you can also use Share → KhataLink.
+      </p>
       {message ? (
         <p className={`rounded-xl p-3 text-sm ${message.ok ? "bg-emerald-500/15 text-emerald-200" : "bg-rose-500/15 text-rose-200"}`}>
           {message.text}
