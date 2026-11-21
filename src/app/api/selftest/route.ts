@@ -47,8 +47,34 @@ function romanUrduTests(): TestResult[] {
   });
 }
 
+
+/** Urdu-script bills: totals by word, Urdu digits, and tables that only list line amounts. */
+function urduBillTests(): TestResult[] {
+  const table = [
+    "| 1 | 36 | لیبی فائل | 168/- | 6048 |",
+    "| 2 | 05 | بیلٹ | 260 | 1300 |",
+    "| 3 | 06 | مارکر | 45 | 270 |",
+    "| 4 | 06 | مارکر | 90 | 540 |",
+  ].join("\n");
+  const cases: Array<[string, string, number | null]> = [
+    ["urdu total word میزان", ["تعداد | تفصیل | رقم", "13000 -", "500 -", "کل: 13500/-", "میزان: 13500/"].join("\n"), 13500],
+    ["urdu digits in total", "میزان: ٨١٥٨", 8158],
+    ["bare total row = sum of the lines", `${table}
+| | | | | 8158 |`, 8158],
+    ["table with total word beats prices", `${table}\nمیزان: 8158`, 8158],
+    ["'kal 3 carton' means yesterday, not total", "کل 3 carton oil diye", null],
+    ["a phone number is not an amount", "call me on 03001234567 please", null],
+    ["dashed phone is not an amount", "Tel 0304-9429269 total 13500", 13500],
+  ];
+  return cases.map(([name, text, expected]) => {
+    const d = parseLedgerText(text, { currency: "PKR" });
+    const got = d.amountMinor === null ? null : d.amountMinor / 100;
+    return { suite: "urdu-bills", name, pass: got === expected, detail: `got ${got} want ${expected}` };
+  });
+}
+
 export async function GET() {
-  const results = [...runSelfTests(), ...runIngestSelfTests(), ...runReportSelfTests(), ...chatImportTests(), ...romanUrduTests()];
+  const results = [...runSelfTests(), ...runIngestSelfTests(), ...runReportSelfTests(), ...chatImportTests(), ...romanUrduTests(), ...urduBillTests()];
   const summary = summarizeTests(results);
   return ok({ ...summary, results }, summary.failed === 0 ? 200 : 500);
 }

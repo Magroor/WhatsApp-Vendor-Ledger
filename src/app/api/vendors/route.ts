@@ -1,6 +1,8 @@
 import { and, eq, ilike, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { transactions, vendors } from "@/db/schema";
+import { cleanVendorInput } from "@/lib/vendor-input";
+import { findVendorByPhone } from "@/lib/ingest";
 import { clientKey, fail, ok, parseAmountToMinor, rateLimit, readJson } from "@/lib/api";
 import { normalizePhone } from "@/lib/wa";
 import { logAudit } from "@/lib/settings";
@@ -64,19 +66,25 @@ type CreateBody = {
 export async function POST(req: Request) {
   if (!rateLimit(clientKey(req, "vendor-create"), 40, 60_000)) return fail("rate-limited", 429);
   const body = await readJson<CreateBody>(req);
-  const name = body.name?.trim();
-  if (!name) return fail("name required");
+  const checked = cleanVendorInput(body as Record<string, unknown>);
+  if ("error" in checked) return fail(checked.error);
+  const v = checked.values;
+  const name = v.name as string;
+  if (v.phone) {
+    const clash = await findVendorByPhone(v.phone);
+    if (clash) return fail(`A vendor with this number already exists: ${clash.name}.`, 409);
+  }
 
   const inserted = await db
     .insert(vendors)
     .values({
       name,
-      phone: body.phone?.trim() ?? null,
-      businessType: body.businessType?.trim() ?? null,
-      city: body.city?.trim() ?? null,
-      currency: body.currency?.toUpperCase() ?? "PKR",
-      creditTermsDays: body.creditTermsDays ?? 30,
-      openingBalanceMinor: parseAmountToMinor(body.openingBalance) ?? 0,
+      phone: v.phone ?? null,
+      businessType: v.businessType ?? null,
+      city: v.city ?? null,
+      currency: v.currency ?? "PKR",
+      creditTermsDays: v.creditTermsDays ?? 30,
+      openingBalanceMinor: v.openingBalanceMinor ?? 0,
       autoCreateSource: "manual",
       needsReview: false,
     })

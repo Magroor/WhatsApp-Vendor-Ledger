@@ -25,7 +25,7 @@ export default function AppHeader() {
     <header className="header no-print">
       <div className="mx-auto flex max-w-[520px] items-center justify-between gap-3 px-4 py-3">
         <div className="min-w-0">
-          <p className="h1 truncate">{meta.title}</p>
+          <h1 className="h1 truncate">{meta.title}</h1>
           <p className="tiny muted truncate">{meta.subtitle}</p>
         </div>
         {isSettings ? (

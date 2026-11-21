@@ -40,15 +40,18 @@ export default function GuidePage() {
 
       <Step n={3} title="Get bills in — choose the way that fits you">
         <p>
-          <b>A. Scan a bill (easiest).</b> Open the <Link href="/inbox" className="underline">Inbox</Link>{" "}
-          and tap <b>📷 Take photo / choose picture</b>. Choose a vendor, or leave it on “detect
-          automatically” — the vendor name printed on the bill is used. A WhatsApp screenshot works too.
-          The amount, credit/debit and items are read and added for you.
+          <b>A. Bill photo (easiest).</b> On the <Link href="/" className="underline">Home</Link> page tap{" "}
+          <b>📷 Bill photo</b> and take a picture or choose one from your gallery. The vendor name printed on the
+          bill is used to find the vendor (or open <b>Options</b> to choose one). The amount, credit or paid, and
+          items are read and added for you. If the bill does not say which it is, you are asked with two big buttons:
+          <b> Bill</b> or <b>Paid</b>. Made a mistake? Tap <b>Undo</b>.
+          <b> Chat screenshot:</b> tap <b>📱 Chat screenshot</b> and choose a screenshot of the vendor chat. Every bill and
+          payment message in it is added; repeats are skipped.
         </p>
         <p>
           <b>B. Text messages: Copy, then Paste.</b> WhatsApp has no Share button for text. Press and hold
-          the vendor&apos;s message → <b>Copy</b>. Open KhataLink → Inbox → tap{" "}
-          <b>📋 Paste copied WhatsApp message</b> (allow “Paste” the first time). <b>Photos and PDFs:</b> open
+          the vendor&apos;s message → <b>Copy</b>. Open KhataLink → Home → tap{" "}
+          <b>📋 Paste text</b> (allow “Paste” the first time), check the text, then <b>Add to ledger</b>. <b>Photos and PDFs:</b> open
           the bill → <b>Share</b> → <b>KhataLink</b> (one-time setup in step 4).
         </p>
         <p>
@@ -75,7 +78,7 @@ export default function GuidePage() {
         </p>
       </Step>
 
-      <Step n={4} title="Share bill photos straight from WhatsApp (optional, 3 minutes, once)">
+      <Step n={4} title="Share straight from WhatsApp (optional shortcut, not yet tested on a real iPhone)">
         <p>
           Administrator first: in Vercel add the variable <code>CAPTURE_TOKEN</code> with a long random
           secret and redeploy. Keep it private — anyone with it can add entries.

@@ -1,12 +1,19 @@
-/* KhataLink offline shell — network first for pages, cache first for assets.
-   API routes are never cached (financial data must always be fresh). */
-const CACHE = "khatalink-v1";
-const ASSETS = ["/", "/vendors", "/inbox", "/reports", "/icon.png", "/manifest.webmanifest"];
+/* KhataLink service worker v2.
+   - Pages and API responses are NEVER cached: ledger data is private and must always be fresh
+     (v1 cached pages, which showed stale data after updates and kept financial pages on the device).
+   - Only immutable, content-hashed build files and the app icons are cached, for speed.
+   - If the network is down, navigations get a small "offline" page instead of a browser error. */
+const CACHE = "khatalink-v2";
+const STATIC = ["/icon.png", "/apple-touch-icon.png", "/manifest.webmanifest"];
+
+const OFFLINE_HTML =
+  '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+  "<title>Offline</title><body style=\"font-family:system-ui;background:#05070f;color:#e8ebf7;display:grid;place-items:center;min-height:100vh;margin:0;text-align:center;padding:24px\">" +
+  "<div><h1 style=\"font-size:1.3rem\">You are offline</h1><p>KhataLink needs a connection to show your ledger. " +
+  "Reconnect and pull down to refresh.</p><button onclick=\"location.reload()\" style=\"font-size:16px;padding:12px 20px;border-radius:12px;border:0\">Try again</button></div></body>";
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches.open(CACHE).then((cache) => cache.addAll(ASSETS).catch(() => undefined)),
-  );
+  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(STATIC).catch(() => undefined)));
   self.skipWaiting();
 });
 
@@ -24,33 +31,30 @@ self.addEventListener("fetch", (event) => {
   if (req.method !== "GET") return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
-  if (url.pathname.startsWith("/api/")) return;
+  if (url.pathname.startsWith("/api/")) return; // never cache API data
 
-  const isAsset = /\.(?:png|jpg|jpeg|svg|webmanifest|css|js|woff2)$/.test(url.pathname);
-
-  if (isAsset) {
+  if (req.mode === "navigate") {
     event.respondWith(
-      caches.match(req).then((cached) => {
-        return (
-          cached ??
-          fetch(req).then((res) => {
-            const copy = res.clone();
-            caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => undefined);
-            return res;
-          })
-        );
-      }),
+      fetch(req).catch(
+        () => new Response(OFFLINE_HTML, { status: 503, headers: { "Content-Type": "text/html; charset=utf-8" } }),
+      ),
     );
     return;
   }
 
+  const cacheable = url.pathname.startsWith("/_next/static/") || STATIC.includes(url.pathname);
+  if (!cacheable) return;
   event.respondWith(
-    fetch(req)
-      .then((res) => {
-        const copy = res.clone();
-        caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => undefined);
-        return res;
-      })
-      .catch(() => caches.match(req).then((cached) => cached ?? caches.match("/"))),
+    caches.match(req).then(
+      (cached) =>
+        cached ??
+        fetch(req).then((res) => {
+          if (res.ok) {
+            const copy = res.clone();
+            caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => undefined);
+          }
+          return res;
+        }),
+    ),
   );
 });

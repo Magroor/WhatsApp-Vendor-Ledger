@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { db } from "@/db";
 import { mediaBlobs, transactions, vendors, waMessages } from "@/db/schema";
 import { clientKey, fail, ok, parseId, rateLimit } from "@/lib/api";
@@ -81,7 +81,7 @@ export async function POST(req: Request) {
     if (!files.length) return fail("Attach a screenshot of the chat.");
     const out = await postChatScreenshot(files[0], parseId(vendorIdRaw));
     if (!out.ok) return fail(out.summary, out.status);
-    return ok({ summary: out.summary, added: out.added, duplicates: out.duplicates, vendor: out.vendor, needsVendor: out.needsVendor }, out.status);
+    return ok({ summary: out.summary, added: out.added, duplicates: out.duplicates, vendor: out.vendor, needsVendor: out.needsVendor, transactionIds: out.transactionIds }, out.status);
   }
 
   // Bridge messages carry a stable id: never process the same WhatsApp message twice.
@@ -129,7 +129,11 @@ export async function POST(req: Request) {
       // Only a picture that already produced an entry is a duplicate; an earlier attempt that
       // failed, timed out or found no amount must stay retryable.
       const priorEntry = prior
-        ? (await db.select({ id: transactions.id }).from(transactions).where(eq(transactions.messageId, prior.id)).limit(1))[0]
+        ? (await db
+            .select({ id: transactions.id })
+            .from(transactions)
+            .where(and(eq(transactions.messageId, prior.id), ne(transactions.status, "void")))
+            .limit(1))[0]
         : undefined;
       if (priorEntry) {
         results.push({ status: "duplicate", amount: null, entryType: null, vendor: vendorRow.name, needsVendor: false, duplicate: true });
@@ -200,6 +204,7 @@ export async function POST(req: Request) {
     results.push({
       messageId,
       vendorId: msgVendor.id,
+      transactionId: tx?.id ?? null,
       amountMinor: tx ? Number(tx.amountMinor) : null,
       assumedDirection: Boolean(payload?.notes?.includes("direction-assumed-credit")),
       status: msgUnassigned && tx ? "review" : tx && tx.status !== "confirmed" ? "review" : outcome.status,

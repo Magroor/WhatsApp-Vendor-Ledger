@@ -187,27 +187,31 @@ export function readOpenAIText(json: unknown): { text: string | null; note?: str
   return { text, note: choices[0]?.finish_reason === "length" ? "vision-truncated" : undefined };
 }
 
-// Google retires Gemini models regularly (2.5 is already closed to new accounts),
-// so try the always-current alias first, then newer/lighter models as fallbacks.
-export const GEMINI_MODELS = [
-  process.env.GEMINI_MODEL,
-  "gemini-flash-latest",
-  "gemini-3.5-flash",
-  "gemini-3.1-flash-lite",
-  "gemini-flash-lite-latest",
-].filter((m, i, all): m is string => Boolean(m) && all.indexOf(m) === i);
+// Measured on a handwritten Urdu bill and a chat screenshot: the "lite" models read both
+// correctly in ~2 s, while the full flash models took ~19 s (they "think" before answering).
+// So: fast models first; the bigger models are only a fallback when the fast read finds
+// no numbers, or when a model is busy/retired (Google retires models regularly).
+export const GEMINI_FAST = [process.env.GEMINI_MODEL, "gemini-3.1-flash-lite", "gemini-flash-lite-latest"].filter(
+  (m, i, all): m is string => Boolean(m) && all.indexOf(m) === i,
+);
+export const GEMINI_SMART = ["gemini-flash-latest", "gemini-3.5-flash"];
+export const GEMINI_MODELS = [...GEMINI_FAST, ...GEMINI_SMART];
 
 /**
  * Sends one generateContent request, trying fallback models. Every attempt has its own
  * timeout and the whole call has a deadline, so a slow/overloaded Google never keeps
  * the upload hanging past the host's 60 s limit.
  */
-export async function fetchGeminiRaw(requestBody: unknown, budgetMs = 45_000): Promise<Response> {
+export async function fetchGeminiRaw(
+  requestBody: unknown,
+  budgetMs = 45_000,
+  models: string[] = GEMINI_MODELS,
+): Promise<Response> {
   const body = JSON.stringify(requestBody);
   const deadline = Date.now() + budgetMs;
   let last: Response | null = null;
   for (let pass = 0; pass < 2; pass += 1) {
-    for (const model of GEMINI_MODELS) {
+    for (const model of models) {
       const remaining = deadline - Date.now();
       if (remaining < 4_000) return last ?? new Response("timeout", { status: 504 });
       try {
@@ -231,8 +235,22 @@ export async function fetchGeminiRaw(requestBody: unknown, budgetMs = 45_000): P
   return last ?? new Response("timeout", { status: 504 });
 }
 
-async function fetchGemini(base64: string, mime: string): Promise<Response> {
-  return fetchGeminiRaw(buildGeminiVisionRequest(base64, mime));
+async function readGeminiResponse(res: Response): Promise<{ text: string | null; note?: string; retryable?: boolean }> {
+  if (!res.ok) return { text: null, note: `vision-gemini-${res.status}`, retryable: isRetryableHttpStatus(res.status) };
+  return readGeminiText(await res.json());
+}
+
+/** Fast model first; escalate to a bigger model only if the fast read found (almost) no numbers. */
+async function geminiOcr(base64: string, mime: string, smartOnly = false) {
+  const body = buildGeminiVisionRequest(base64, mime);
+  if (smartOnly) return readGeminiResponse(await fetchGeminiRaw(body, 28_000, GEMINI_SMART));
+  const digits = (t: string | null) => (t?.match(/\d/g) ?? []).length;
+  let out = await readGeminiResponse(await fetchGeminiRaw(body, 22_000, GEMINI_FAST));
+  if (!out.text || digits(out.text) < 3) {
+    const second = await readGeminiResponse(await fetchGeminiRaw(body, 24_000, GEMINI_SMART));
+    if (second.text && digits(second.text) >= digits(out.text)) out = second;
+  }
+  return out;
 }
 
 /** Google Gemini (free tier available): bill photos / PDFs -> transcribed text. */
@@ -265,12 +283,17 @@ async function callVisionProvider(
   provider: "anthropic" | "openai" | "gemini",
   base64: string,
   mime: string,
+  smartOnly = false,
 ): Promise<ExtractionResult> {
   try {
+    if (provider === "gemini") {
+      const g = await geminiOcr(base64, mime, smartOnly);
+      return g.text
+        ? { text: g.text, source: "vision", note: g.note }
+        : { text: null, source: "none", note: g.note ?? "vision-gemini-failed", retryable: g.retryable };
+    }
     const res =
-      provider === "gemini"
-        ? await fetchGemini(base64, mime)
-        : provider === "anthropic"
+      provider === "anthropic"
         ? await fetch("https://api.anthropic.com/v1/messages", {
             method: "POST",
             headers: {
@@ -300,7 +323,7 @@ async function callVisionProvider(
     }
     const json = await res.json();
     const read =
-      provider === "gemini" ? readGeminiText(json) : provider === "anthropic" ? readAnthropicText(json) : readOpenAIText(json);
+      provider === "anthropic" ? readAnthropicText(json) : readOpenAIText(json);
     return read.text
       ? { text: read.text, source: "vision", note: read.note }
       : { text: null, source: "none", note: read.note };
@@ -309,7 +332,7 @@ async function callVisionProvider(
   }
 }
 
-async function visionExtract(base64: string, mimeType: string): Promise<ExtractionResult> {
+async function visionExtract(base64: string, mimeType: string, smartOnly = false): Promise<ExtractionResult> {
   const mime = normalizeMime(mimeType) || "image/jpeg";
   if (!isOcrMime(mime)) return { text: null, source: "none", note: `unsupported-media-type:${mime}` };
   // Free provider first, paid ones as fallback.
@@ -320,7 +343,7 @@ async function visionExtract(base64: string, mimeType: string): Promise<Extracti
   if (!providers.length) return { text: null, source: "none", note: "no-vision-key" };
   let last: ExtractionResult = { text: null, source: "none", note: "vision-not-run" };
   for (const provider of providers) {
-    last = await callVisionProvider(provider, base64, mime);
+    last = await callVisionProvider(provider, base64, mime, smartOnly);
     if (last.text) return last;
   }
   return last;
@@ -354,11 +377,14 @@ async function audioExtract(bytes: Buffer, mimeType: string): Promise<Extraction
 }
 
 /** Download media for a stored message and run OCR / transcription. */
-async function extractFromMedia(row: {
-  messageType: string;
-  mediaId: string | null;
-  mimeType: string | null;
-}): Promise<ExtractionResult | null> {
+async function extractFromMedia(
+  row: {
+    messageType: string;
+    mediaId: string | null;
+    mimeType: string | null;
+  },
+  opts: { smart?: boolean } = {},
+): Promise<ExtractionResult | null> {
   const isDoc = row.messageType === "image" || row.messageType === "document";
   const isAudio = row.messageType === "audio";
   if (!isDoc && !isAudio) return null;
@@ -372,14 +398,14 @@ async function extractFromMedia(row: {
     if (!blob) return { text: null, source: "none", note: "upload-missing" };
     return isAudio
       ? audioExtract(Buffer.from(blob.dataBase64, "base64"), blob.mimeType)
-      : visionExtract(blob.dataBase64, blob.mimeType);
+      : visionExtract(blob.dataBase64, blob.mimeType, opts.smart);
   }
   const media = await downloadWhatsAppMedia(row.mediaId);
   if (!media.bytes) {
     return { text: null, source: "none", note: media.error ?? "media-unavailable", retryable: media.retryable };
   }
   const mime = media.mimeType ?? row.mimeType ?? (isAudio ? "audio/ogg" : "image/jpeg");
-  return isAudio ? audioExtract(media.bytes, mime) : visionExtract(media.bytes.toString("base64"), mime);
+  return isAudio ? audioExtract(media.bytes, mime) : visionExtract(media.bytes.toString("base64"), mime, opts.smart);
 }
 
 /**
@@ -737,12 +763,30 @@ export async function processStoredMessage(
 
     const sourceText = composeSourceText({ body: row.body, caption: row.caption, ocrText });
     const termDays = vendor.creditTermsDays || settings.defaultTermDays;
-    const draft = parseLedgerText(sourceText, {
-      currency: vendor.currency,
-      now: row.receivedAt,
-      defaultTermDays: termDays,
-      senderName: row.profileName,
-    });
+    const parseNow = (text: string) =>
+      parseLedgerText(text, {
+        currency: vendor.currency,
+        now: row.receivedAt,
+        defaultTermDays: termDays,
+        senderName: row.profileName,
+      });
+    const MISMATCH = "items-sum-differs-from-total";
+    let draft = parseNow(sourceText);
+    // The fast model can misread a digit. If the item lines do not add up to the total, read the
+    // photo once more with the larger model and keep whichever version is internally consistent.
+    if (extract?.source === "vision" && draft.notes.includes(MISMATCH)) {
+      const smart = await extractFromMedia(row, { smart: true });
+      if (smart?.text) {
+        const again = parseNow(composeSourceText({ body: row.body, caption: row.caption, ocrText: smart.text }));
+        if (!again.notes.includes(MISMATCH)) {
+          draft = again;
+          ocrText = smart.text;
+          extractionSource = smart.source;
+        }
+      }
+    }
+    // Totals that still disagree with their own lines must be checked by a person.
+    if (draft.notes.includes(MISMATCH)) draft.confidence = Math.min(draft.confidence, 60);
     // A photographed/forwarded bill that states an amount but no direction (e.g. an Urdu bill
     // with no "udhaar" word) is almost always a purchase on credit. Post it as a low-confidence
     // credit so it lands in Needs review as a draft instead of being lost.

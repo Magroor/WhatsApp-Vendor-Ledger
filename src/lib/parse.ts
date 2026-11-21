@@ -118,6 +118,9 @@ const MONTHS = [
 
 export function normalizeText(raw: string): string {
   return (raw ?? "")
+    // Urdu/Arabic digits (٠١٢٣٤٥٦٧٨٩ and ۰۱۲۳۴۵۶۷۸۹) -> 0-9 so amounts in Urdu script are read
+    .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    .replace(/[\u06f0-\u06f9]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
     .replace(/\u00a0/g, " ")
     .replace(/[\u200b-\u200f]/g, "")
     .replace(/\r/g, "")
@@ -142,7 +145,9 @@ const NUM = String.raw`[0-9][0-9,]*(?:\.[0-9]{1,2})?`;
 const NUM_END = String.raw`(?![0-9])(?!\.[0-9])(?!\s*(?:din|days?)\b)`;
 const MONEY_TOKEN = String.raw`(?:rs\.?|pkr|inr|usd|aed|sar|rupees|₹|\$)\s*(${NUM}${MULT})`;
 const MONEY_TOKEN_AFTER = String.raw`(${NUM}${MULT})\s*(?:rs\.?|pkr|inr|rupees|rupee|rupay|rupaye|rupey|rupya|\/-|₹|\$|-rs)`;
-const PLAIN_MONEY = String.raw`(?:^|[\s:=])([0-9]{1,3}(?:,[0-9]{2,3})+(?:\.[0-9]{1,2})?|[0-9]{4,}(?:\.[0-9]{1,2})?)(?![0-9])`;
+// Plain numbers: no leading zero (phone numbers like 0300…), at most 9 digits (a 10+ digit run is a
+// phone/ID), and not glued to more digits or a dash (0304-9429269, 2026-11-12).
+const PLAIN_MONEY = String.raw`(?:^|[\s:=])(?!0[0-9])([0-9]{1,3}(?:,[0-9]{2,3})+(?:\.[0-9]{1,2})?|[0-9]{4,9}(?:\.[0-9]{1,2})?)(?![0-9-])`;
 
 function pushCandidate(
   list: AmountCandidate[],
@@ -164,12 +169,59 @@ function pushCandidate(
   }
 }
 
+
+/**
+ * Tabular bills (very common handwritten Urdu bills) list line amounts and a total. When no
+ * explicit total word was found, the total is the largest number that equals the sum of two or
+ * more of the other numbers. Returns minor units, or null. Skips phone-like and year-like numbers.
+ */
+export function totalFromColumnSum(text: string): number | null {
+  const tokens: number[] = [];
+  for (const m of text.matchAll(/(?<![\d.,/-])(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{1,2}))?(?![\d/])/g)) {
+    const whole = Number(m[1].replace(/,/g, ""));
+    if (!Number.isFinite(whole) || whole < 10 || whole >= 1e9) continue;
+    if (/^(19|20)\d\d$/.test(m[1])) continue; // a year
+    if (m[1].length >= 10) continue; // a phone number
+    tokens.push(Math.round((whole + (m[2] ? Number(`0.${m[2]}`) : 0)) * 100));
+  }
+  const nums = [...new Set(tokens)].slice(0, 18);
+  if (nums.length < 3) return null;
+  const sorted = [...nums].sort((a, b) => b - a);
+  for (const total of sorted) {
+    if (total < 10000) break; // below Rs 100 is not worth guessing
+    const rest = nums.filter((n) => n < total);
+    const limit = 1 << rest.length; // subset-sum over at most 17 numbers
+    for (let mask = 1; mask < limit; mask += 1) {
+      if ((mask & (mask - 1)) === 0) continue; // need 2+ numbers
+      let sum = 0;
+      for (let i = 0; i < rest.length; i += 1) if (mask & (1 << i)) sum += rest[i];
+      if (sum === total) return total;
+    }
+  }
+  return null;
+}
+
 export function extractAmountCandidates(text: string): AmountCandidate[] {
   const out: AmountCandidate[] = [];
   // Explicit totals carry the highest weight.
   const CUR = String.raw`(?:rs\.?|pkr|rupees|₹)?`;
   // Explicit totals carry the highest weight. A bare "net" is excluded here
   // ("net 30" is a payment term) and so is a lone "balance" (weighted lower below).
+  // Urdu total words. "کل" alone also means "yesterday", so it needs a 3+ digit number after it.
+  pushCandidate(
+    out,
+    text,
+    /(?:میزان|مجموعہ|مجموعه|ٹوٹل|کل\s*رقم|کل\s*میزان|جمع)\s*[:=\-]?\s*(?:rs\.?|روپے)?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)/gi,
+    100,
+    "explicit-total-urdu",
+  );
+  pushCandidate(
+    out,
+    text,
+    /(?:^|[\s|])کل\s*[:=\-]?\s*(?:rs\.?|روپے)?\s*([0-9][0-9,]{2,}(?:\.[0-9]{1,2})?)/gi,
+    96,
+    "explicit-total-urdu-kul",
+  );
   pushCandidate(
     out,
     text,
@@ -623,6 +675,14 @@ export function parseLedgerText(
   const items = extractItems(text);
   const candidates = extractAmountCandidates(text);
   let amountMinor = chooseAmount(candidates);
+  // No "total" word found (only prices / loose numbers): use the number that is the sum of the lines.
+  if (Math.max(0, ...candidates.map((c) => c.weight)) < 90) {
+    const columnTotal = totalFromColumnSum(text);
+    if (columnTotal) {
+      amountMinor = columnTotal;
+      notes.push("amount-from-column-sum");
+    }
+  }
 
   if (items.length > 0) {
     const itemsSum = items.reduce((acc, i) => acc + (i.lineTotalMinor ?? 0), 0);

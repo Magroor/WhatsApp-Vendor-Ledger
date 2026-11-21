@@ -29,7 +29,7 @@ const money = (minor: number) =>
 
 export default function ImportChat({ vendors }: { vendors: Vendor[] }) {
   const router = useRouter();
-  const [vendorId, setVendorId] = useState<string>(vendors[0] ? String(vendors[0].id) : "new");
+  const [vendorId, setVendorId] = useState<string>(""); // no silent default: the user must choose
   const [newName, setNewName] = useState("");
   const [text, setText] = useState("");
   const [fileName, setFileName] = useState("");
@@ -47,6 +47,16 @@ export default function ImportChat({ vendors }: { vendors: Vendor[] }) {
     try {
       setText(await readChatFile(file));
       setFileName(file.name);
+      // "WhatsApp Chat - Ahmed Traders.zip" names the vendor: pre-select it (or offer a new one).
+      const named = file.name.replace(/\.(zip|txt)$/i, "").match(/^whatsapp\s+chat\s*(?:-|–|with)\s*(.+)$/i)?.[1]?.trim();
+      if (named && !vendorId) {
+        const hit = vendors.find((v) => v.name.trim().toLowerCase() === named.toLowerCase());
+        if (hit) setVendorId(String(hit.id));
+        else {
+          setVendorId("new");
+          setNewName(named);
+        }
+      }
     } catch (e) {
       setError((e as Error).message);
     }
@@ -105,8 +115,9 @@ export default function ImportChat({ vendors }: { vendors: Vendor[] }) {
     <div className="space-y-4">
       <div className="card space-y-3">
         <p className="h2">1 · Which vendor is this chat with?</p>
-        <select className="field" value={vendorId} onChange={(e) => setVendorId(e.target.value)}>
-          {vendors.map((v) => (
+        <select className="field" aria-label="Vendor this chat is with" value={vendorId} onChange={(e) => setVendorId(e.target.value)}>
+          <option value="">Choose a vendor…</option>
+          {vendors.filter((v) => !v.name.startsWith("Unassigned")).map((v) => (
             <option key={v.id} value={v.id}>
               {v.name}
             </option>
@@ -134,6 +145,9 @@ export default function ImportChat({ vendors }: { vendors: Vendor[] }) {
             onChange={(e) => pick(e.target.files?.[0])}
           />
         </label>
+        <p className="tiny muted text-center">
+          iPhone shows a small menu: tap <b>Choose Files</b>, then <b>Recents</b>. Pick “WhatsApp Chat - vendor name”.
+        </p>
         <p className="tiny muted text-center">or paste the chat text</p>
         <textarea
           className="field"
@@ -147,7 +161,7 @@ export default function ImportChat({ vendors }: { vendors: Vendor[] }) {
         />
         <button
           className="btn btn-primary w-full"
-          disabled={busy || !text.trim() || (vendorId === "new" && !newName.trim())}
+          disabled={busy || !text.trim() || !vendorId || (vendorId === "new" && !newName.trim())}
           onClick={() => call(false)}
         >
           {busy && !entries ? "Reading chat…" : "Find bills & payments"}
@@ -185,7 +199,7 @@ export default function ImportChat({ vendors }: { vendors: Vendor[] }) {
                         <span className={e.entryType === "credit" ? "money-pos font-semibold" : "money-neg font-semibold"}>
                           {e.entryType === "credit" ? "Bill (credit)" : "Payment (debit)"} · {money(e.amountMinor)}
                         </span>
-                        <span className="tiny muted">{new Date(e.at).toLocaleDateString()}</span>
+                        <span className="tiny muted">{new Date(e.at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</span>
                       </span>
                       <span className="tiny muted line-clamp-2 block">{e.text}</span>
                     </span>

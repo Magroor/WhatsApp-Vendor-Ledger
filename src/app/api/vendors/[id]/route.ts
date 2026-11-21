@@ -1,3 +1,5 @@
+import { cleanVendorInput } from "@/lib/vendor-input";
+import { findVendorByPhone } from "@/lib/ingest";
 import { desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { transactions, txItems, vendors, waMessages } from "@/db/schema";
@@ -42,17 +44,22 @@ export async function PATCH(req: Request, { params }: Params) {
     needsReview?: boolean;
   }>(req);
 
-  const patch: Record<string, unknown> = {};
-  if (body.name?.trim()) patch.name = body.name.trim();
-  if (body.phone !== undefined) patch.phone = body.phone.trim() || null;
-  if (body.businessType !== undefined) patch.businessType = body.businessType;
-  if (body.city !== undefined) patch.city = body.city;
-  if (body.currency) patch.currency = body.currency.toUpperCase();
-  if (typeof body.creditTermsDays === "number") patch.creditTermsDays = body.creditTermsDays;
-  if (body.openingBalance !== undefined) {
-    patch.openingBalanceMinor = parseAmountToMinor(body.openingBalance) ?? 0;
+  const checked = cleanVendorInput(body as Record<string, unknown>, { partial: true });
+  if ("error" in checked) return fail(checked.error);
+  const v = checked.values;
+  if (v.phone) {
+    const clash = await findVendorByPhone(v.phone);
+    if (clash && clash.id !== vendorId) return fail(`A vendor with this number already exists: ${clash.name}.`, 409);
   }
-  if (body.notes !== undefined) patch.notes = body.notes;
+  const patch: Record<string, unknown> = {};
+  if (v.name !== undefined) patch.name = v.name;
+  if (v.phone !== undefined) patch.phone = v.phone;
+  if (v.businessType !== undefined) patch.businessType = v.businessType;
+  if (v.city !== undefined) patch.city = v.city;
+  if (v.currency !== undefined) patch.currency = v.currency;
+  if (v.creditTermsDays !== undefined) patch.creditTermsDays = v.creditTermsDays;
+  if (v.openingBalanceMinor !== undefined) patch.openingBalanceMinor = v.openingBalanceMinor;
+  if (body.notes !== undefined) patch.notes = String(body.notes ?? "").slice(0, 2000);
   if (typeof body.archived === "boolean") patch.archived = body.archived;
   if (typeof body.needsReview === "boolean") patch.needsReview = body.needsReview;
 

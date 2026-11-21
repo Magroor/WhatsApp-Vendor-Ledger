@@ -15,9 +15,14 @@ export default function IosRuntime() {
 
   useEffect(() => {
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js").catch(() => {
-        /* offline caching is best-effort */
-      });
+      if (process.env.NODE_ENV === "production") {
+        navigator.serviceWorker.register("/sw.js").catch(() => {
+          /* offline caching is best-effort */
+        });
+      } else {
+        // Development: never keep a worker (it would serve stale files while coding).
+        navigator.serviceWorker.getRegistrations().then((rs) => rs.forEach((r) => r.unregister()));
+      }
     }
     const el = hintRef.current;
     if (!el) return;

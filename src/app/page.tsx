@@ -84,8 +84,8 @@ export default async function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-2 gap-2">
-        <Link href="/inbox?compose=1" className="btn btn-primary">
-          ➕ Capture bill
+        <Link href="/inbox" className="btn btn-primary">
+          💬 Inbox
         </Link>
         <Link href="/vendors?add=1" className="btn">
           👤 Add vendor
@@ -202,8 +202,7 @@ export default async function DashboardPage() {
           <div className="space-y-3">
             {data.inbox.length === 0 ? (
               <p className="tiny muted">
-                Forward vendor bills to your WhatsApp Business number, or paste them in
-                <Link href="/inbox?compose=1" className="text-indigo-300"> Capture</Link>.
+                Nothing yet. Use <b>Add a bill</b> above: a photo, a chat screenshot, or pasted text.
               </p>
             ) : (
               data.inbox.map((m) => (

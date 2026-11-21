@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { db } from "@/db";
-import { mediaBlobs, vendors, waMessages } from "@/db/schema";
+import { mediaBlobs, transactions, vendors, waMessages } from "@/db/schema";
 import { readChatScreenshot, shotDate, shotMessageHash } from "./chatshot";
 import { postParsedDraft } from "./ingest";
 import { formatMinor } from "./money";
@@ -17,6 +17,7 @@ export type ChatShotOutcome = {
   duplicates: number;
   vendor?: string;
   needsVendor?: boolean;
+  transactionIds: number[];
 };
 
 /**
@@ -26,27 +27,50 @@ export type ChatShotOutcome = {
  */
 export async function postChatScreenshot(file: File, vendorIdParam: number | null): Promise<ChatShotOutcome> {
   if (!process.env.GEMINI_API_KEY) {
-    return { ok: false, status: 503, summary: "Screenshot reading needs GEMINI_API_KEY on the server.", added: 0, duplicates: 0 };
+    return { ok: false, status: 503, summary: "Screenshot reading needs GEMINI_API_KEY on the server.", added: 0, duplicates: 0, transactionIds: [] };
   }
   const bytes = Buffer.from(await file.arrayBuffer());
   const sha = crypto.createHash("sha256").update(bytes).digest("hex").slice(0, 32);
   const markerId = `shot-${sha}`;
-  const seen = await db.select({ id: waMessages.id }).from(waMessages).where(eq(waMessages.waMessageId, markerId)).limit(1);
-  if (seen[0]) return { ok: true, status: 200, summary: "This screenshot was already added.", added: 0, duplicates: 1 };
+  const seen = (
+    await db.select({ id: waMessages.id, mediaId: waMessages.mediaId }).from(waMessages).where(eq(waMessages.waMessageId, markerId)).limit(1)
+  )[0];
+  if (seen) {
+    const active = seen.mediaId
+      ? (
+          await db
+            .select({ id: transactions.id })
+            .from(transactions)
+            .innerJoin(waMessages, eq(transactions.messageId, waMessages.id))
+            .where(and(eq(waMessages.mediaId, seen.mediaId), ne(transactions.status, "void")))
+            .limit(1)
+        )[0]
+      : undefined;
+    if (active) return { ok: true, status: 200, summary: "This screenshot was already added.", added: 0, duplicates: 1, transactionIds: [] };
+    // Everything from this screenshot was undone: forget it so it can be read and added again.
+    if (seen.mediaId) {
+      await db.delete(waMessages).where(eq(waMessages.mediaId, seen.mediaId));
+      const blobId = Number.parseInt(seen.mediaId.replace("upload:", ""), 10);
+      if (Number.isFinite(blobId)) await db.delete(mediaBlobs).where(eq(mediaBlobs.id, blobId));
+    } else {
+      await db.delete(waMessages).where(eq(waMessages.id, seen.id));
+    }
+  }
 
   const mime = (file.type || "image/jpeg").toLowerCase();
   const read = await readChatScreenshot(bytes.toString("base64"), mime);
   if (!read.shot) {
-    return { ok: false, status: 502, summary: `Could not read the screenshot (${read.error ?? "unknown"}). Try again.`, added: 0, duplicates: 0 };
+    return { ok: false, status: 502, summary: `Could not read the screenshot (${read.error ?? "unknown"}). Try again.`, added: 0, duplicates: 0, transactionIds: [] };
   }
   const { shot } = read;
   if (shot.kind !== "chat" || shot.messages.length === 0) {
     return {
       ok: true,
       status: 200,
-      summary: "This doesn't look like a chat screenshot. For a bill photo use Scan bill.",
+      summary: "This doesn't look like a chat screenshot. For a bill photo use Bill photo.",
       added: 0,
       duplicates: 0,
+      transactionIds: [],
     };
   }
 
@@ -85,7 +109,7 @@ export async function postChatScreenshot(file: File, vendorIdParam: number | nul
     })
     .onConflictDoNothing({ target: waMessages.waMessageId })
     .returning({ id: waMessages.id });
-  if (!marker[0]) return { ok: true, status: 200, summary: "This screenshot was already added.", added: 0, duplicates: 1 };
+  if (!marker[0]) return { ok: true, status: 200, summary: "This screenshot was already added.", added: 0, duplicates: 1, transactionIds: [] };
   await db.update(waMessages).set({ mediaUrl: `/api/media/${marker[0].id}` }).where(eq(waMessages.id, marker[0].id));
 
   const now = new Date();
@@ -94,6 +118,7 @@ export async function postChatScreenshot(file: File, vendorIdParam: number | nul
   let credit = 0;
   let debit = 0;
   let drafts = 0;
+  const transactionIds: number[] = [];
   for (const m of shot.messages) {
     const when = shotDate(m, now) ?? now;
     const draft = parseLedgerText(m.text, {
@@ -122,11 +147,29 @@ export async function postChatScreenshot(file: File, vendorIdParam: number | nul
       })
       .onConflictDoNothing({ target: waMessages.waMessageId })
       .returning({ id: waMessages.id });
-    if (!inserted[0]) {
-      duplicates += 1;
-      continue;
+    let messageId = inserted[0]?.id;
+    if (!messageId) {
+      // Same message seen before. It is only a duplicate while its entry is still active:
+      // if the entry was undone (voided), the message may be added again.
+      const prior = (
+        await db.select({ id: waMessages.id }).from(waMessages).where(eq(waMessages.waMessageId, `shotmsg-${shotMessageHash(vendorId, m)}`)).limit(1)
+      )[0];
+      const active = prior
+        ? (
+            await db
+              .select({ id: transactions.id })
+              .from(transactions)
+              .where(and(eq(transactions.messageId, prior.id), ne(transactions.status, "void")))
+              .limit(1)
+          )[0]
+        : undefined;
+      if (!prior || active) {
+        duplicates += 1;
+        continue;
+      }
+      messageId = prior.id;
+      await db.update(waMessages).set({ mediaId: mediaRef, parseStatus: "review", receivedAt: when }).where(eq(waMessages.id, messageId));
     }
-    const messageId = inserted[0].id;
     await db.update(waMessages).set({ mediaUrl: `/api/media/${messageId}` }).where(eq(waMessages.id, messageId));
     const tx = await postParsedDraft({
       draft,
@@ -142,6 +185,7 @@ export async function postChatScreenshot(file: File, vendorIdParam: number | nul
     });
     if (tx) {
       added += 1;
+      transactionIds.push(tx.id);
       if (tx.status !== "confirmed") drafts += 1;
       if (tx.status === "confirmed") {
         await db.update(waMessages).set({ parseStatus: "parsed" }).where(eq(waMessages.id, messageId));
@@ -166,5 +210,5 @@ export async function postChatScreenshot(file: File, vendorIdParam: number | nul
   if (duplicates && added) parts.push(`${duplicates} already added.`);
   if (drafts && !unassigned) parts.push(`${drafts} to check in Inbox (amount shown there).`);
   if (unassigned && added) parts.push("Open Inbox and choose the vendor.");
-  return { ok: true, status: 201, summary: parts.join(" "), added, duplicates, vendor: vendor.name, needsVendor: unassigned };
+  return { ok: true, status: 201, summary: parts.join(" "), added, duplicates, vendor: vendor.name, needsVendor: unassigned, transactionIds };
 }

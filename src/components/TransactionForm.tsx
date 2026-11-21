@@ -23,7 +23,8 @@ export default function TransactionForm({
   const [reference, setReference] = useState("");
   const [description, setDescription] = useState("");
   const [paymentMode, setPaymentMode] = useState("");
-  const [occurredAt, setOccurredAt] = useState(() => new Date().toISOString().slice(0, 10));
+  // Local date: UTC would pre-fill yesterday between midnight and 5 am in Asia.
+  const [occurredAt, setOccurredAt] = useState(() => new Date().toLocaleDateString("en-CA"));
   const [items, setItems] = useState<ItemRow[]>([]);
 
   function addItem() {
@@ -34,8 +35,17 @@ export default function TransactionForm({
   }
 
   async function submit(status: "confirmed" | "draft") {
-    setBusy(true);
     setError(null);
+    const cleaned = amount.trim().replace(/,/g, "");
+    if (!/^\d+(\.\d{1,2})?$/.test(cleaned) || Number(cleaned) <= 0) {
+      setError("Enter the amount as a positive number, like 7500 or 1250.50.");
+      return;
+    }
+    if (Number(cleaned) > 100_000_000_000) {
+      setError("That amount is too large. Check the zeros.");
+      return;
+    }
+    setBusy(true);
     try {
       const res = await fetch("/api/transactions", {
         method: "POST",
@@ -43,7 +53,7 @@ export default function TransactionForm({
         body: JSON.stringify({
           vendorId,
           entryType,
-          amount,
+          amount: cleaned,
           reference: reference || undefined,
           description: description || undefined,
           paymentMode: entryType === "debit" ? paymentMode || undefined : undefined,
@@ -116,18 +126,18 @@ export default function TransactionForm({
       <div className="grid grid-cols-2 gap-2">
         <div>
           <label className="label">Date</label>
-          <input className="field" type="date" value={occurredAt} onChange={(e) => setOccurredAt(e.target.value)} />
+          <input aria-label="Date" className="field" type="date" value={occurredAt} onChange={(e) => setOccurredAt(e.target.value)} />
         </div>
         <div>
           <label className="label">Bill / ref #</label>
-          <input className="field" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="1042" />
+          <input aria-label="Bill / ref #" className="field" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="1042" />
         </div>
       </div>
 
       {entryType === "debit" ? (
         <div>
           <label className="label">Payment mode</label>
-          <select className="field" value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)}>
+          <select aria-label="Payment mode" className="field" value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)}>
             <option value="" className="bg-slate-900">Select</option>
             {["cash", "bank", "easypaisa", "jazzcash", "cheque", "card", "upi"].map((m) => (
               <option key={m} value={m} className="bg-slate-900">
@@ -144,7 +154,7 @@ export default function TransactionForm({
 
       <div>
         <label className="label">Note</label>
-        <input
+        <input aria-label="Note"
           className="field"
           value={description}
           onChange={(e) => setDescription(e.target.value)}

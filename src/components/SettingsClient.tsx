@@ -64,12 +64,12 @@ export function SettingsForm({
 
       <div>
         <label className="label">Business name (used in WhatsApp replies)</label>
-        <input className="field" value={form.businessName} onChange={(e) => set("businessName", e.target.value)} />
+        <input aria-label="Business name (used in WhatsApp replies)" className="field" value={form.businessName} onChange={(e) => set("businessName", e.target.value)} />
       </div>
 
       <div>
         <label className="label">Time zone (for reports)</label>
-        <select className="field" value={form.timeZone ?? "Asia/Karachi"} onChange={(e) => set("timeZone", e.target.value)}>
+        <select aria-label="Time zone (for reports)" className="field" value={form.timeZone ?? "Asia/Karachi"} onChange={(e) => set("timeZone", e.target.value)}>
           {ZONES.map((z) => (
             <option key={z} value={z} className="bg-slate-900">
               {z}
@@ -81,7 +81,7 @@ export function SettingsForm({
       <div className="grid grid-cols-3 gap-2">
         <div>
           <label className="label">Currency</label>
-          <select className="field" value={form.currency} onChange={(e) => set("currency", e.target.value)}>
+          <select aria-label="Currency" className="field" value={form.currency} onChange={(e) => set("currency", e.target.value)}>
             {CURRENCIES.map((c) => (
               <option key={c} value={c} className="bg-slate-900">
                 {c}
@@ -91,7 +91,7 @@ export function SettingsForm({
         </div>
         <div>
           <label className="label">Default terms</label>
-          <input
+          <input aria-label="Default terms"
             className="field"
             inputMode="numeric"
             value={form.defaultTermDays}
@@ -100,7 +100,7 @@ export function SettingsForm({
         </div>
         <div>
           <label className="label">Auto-post ≥</label>
-          <input
+          <input aria-label="Auto-post ≥"
             className="field"
             inputMode="numeric"
             value={form.autoConfirmThreshold}
@@ -112,7 +112,7 @@ export function SettingsForm({
       <div className="grid grid-cols-2 gap-2">
         <div>
           <label className="label">Reminder cadence (days)</label>
-          <input
+          <input aria-label="Reminder cadence (days)"
             className="field"
             inputMode="numeric"
             value={form.reminderCadenceDays}
@@ -121,7 +121,7 @@ export function SettingsForm({
         </div>
         <div>
           <label className="label">Weekly report day</label>
-          <select
+          <select aria-label="Weekly report day"
             className="field"
             value={form.weeklyReportDay}
             onChange={(e) => set("weeklyReportDay", Number(e.target.value))}
@@ -144,7 +144,7 @@ export function SettingsForm({
 
       <div>
         <label className="label">WhatsApp Phone Number ID</label>
-        <input
+        <input aria-label="WhatsApp Phone Number ID"
           className="field"
           value={form.whatsappPhoneNumberId}
           onChange={(e) => set("whatsappPhoneNumberId", e.target.value)}
@@ -153,7 +153,7 @@ export function SettingsForm({
       </div>
       <div>
         <label className="label">WhatsApp Business Account ID</label>
-        <input
+        <input aria-label="WhatsApp Business Account ID"
           className="field"
           value={form.whatsappBusinessId}
           onChange={(e) => set("whatsappBusinessId", e.target.value)}
@@ -162,7 +162,7 @@ export function SettingsForm({
       </div>
       <div>
         <label className="label">Webhook verify token</label>
-        <input
+        <input aria-label="Webhook verify token"
           className="field mono"
           value={form.webhookVerifyToken}
           onChange={(e) => set("webhookVerifyToken", e.target.value)}
@@ -254,6 +254,7 @@ export function SeedButton({ hasData }: { hasData: boolean }) {
   const [note, setNote] = useState<string | null>(null);
 
   async function seed(force: boolean) {
+    if (!window.confirm("Add demo vendors and entries to your ledger? You can remove them later with Reset test data.")) return;
     setBusy(true);
     setNote(null);
     try {
@@ -278,17 +279,12 @@ export function SeedButton({ hasData }: { hasData: boolean }) {
     <div className="card space-y-2">
       <p className="h2">Demo data</p>
       <p className="tiny muted">
-        Loads five realistic vendors with a year of WhatsApp bills and payments so reports,
-        aging and reminders have something to show.
+        Adds five sample vendors with a year of bills and payments so you can try reports and reminders.
+        Remove them any time with <b>Reset test data</b> below.
       </p>
-      <div className="grid grid-cols-2 gap-2">
-        <button className="btn btn-sm btn-primary" onClick={() => seed(false)} disabled={busy}>
-          {busy ? "Working…" : hasData ? "Fill gaps" : "Seed demo data"}
-        </button>
-        <button className="btn btn-sm btn-debit" onClick={() => seed(true)} disabled={busy}>
-          Replace everything
-        </button>
-      </div>
+      <button className="btn btn-sm btn-primary w-full" onClick={() => seed(false)} disabled={busy}>
+        {busy ? "Working…" : hasData ? "Add demo data to my ledger" : "Load demo data"}
+      </button>
       {note ? <p className="tiny muted">{note}</p> : null}
     </div>
   );
@@ -340,10 +336,10 @@ export function TestWebhookButton({ payload }: { payload: string }) {
   return (
     <div className="space-y-2">
       <p className="label">Test message (pretend a vendor sent this)</p>
-      <textarea className="field" rows={4} value={text} onChange={(e) => setText(e.target.value)} />
+      <textarea className="field" rows={4} aria-label="Test message text" value={text} onChange={(e) => setText(e.target.value)} />
       <div className="grid grid-cols-2 gap-2">
-        <input className="field" placeholder="Vendor name" value={name} onChange={(e) => setName(e.target.value)} />
-        <input className="field" inputMode="numeric" placeholder="Vendor phone" value={from} onChange={(e) => setFrom(e.target.value)} />
+        <input className="field" aria-label="Test vendor name" placeholder="Vendor name" value={name} onChange={(e) => setName(e.target.value)} />
+        <input className="field" aria-label="Test vendor phone" inputMode="numeric" placeholder="Vendor phone" value={from} onChange={(e) => setFrom(e.target.value)} />
       </div>
       <button className="btn btn-sm btn-primary w-full" onClick={fire} disabled={busy || !text.trim()}>
         {busy ? "Sending…" : "🚀 Send test message"}

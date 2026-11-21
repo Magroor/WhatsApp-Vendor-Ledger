@@ -1,4 +1,6 @@
 import { mkdirSync } from "node:fs";
+import { homedir } from "node:os";
+import path from "node:path";
 import { drizzle as drizzlePg, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { drizzle as drizzlePglite } from "drizzle-orm/pglite";
 import { Pool } from "pg";
@@ -22,7 +24,10 @@ export const usingEmbedded = !databaseUrl;
 
 // Hosted serverless disks are read-only except /tmp (and wiped between runs), so
 // the embedded fallback there is only a safety net: set DATABASE_URL for real use.
-const liteDir = process.env.PGLITE_DIR || (process.env.VERCEL ? "/tmp/pglite" : "./.data/pglite");
+// Local test database lives OUTSIDE the project folder: inside it, every database write looks like
+// a code change to Next's file watcher and the page reloads in an endless loop while developing.
+const liteDir =
+  process.env.PGLITE_DIR || (process.env.VERCEL ? "/tmp/pglite" : path.join(homedir(), ".khatalink", "pglite"));
 if (!databaseUrl) mkdirSync(liteDir, { recursive: true });
 
 export const pool: Pool | undefined = databaseUrl

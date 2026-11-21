@@ -212,8 +212,8 @@ export default async function VendorPage({
                       </details>
                     ) : null}
                     {t.messageId ? (
-                      <Link href="/inbox" className="tiny text-indigo-300">
-                        View source message →
+                      <Link href="/inbox" className="tiny tap-link text-indigo-300">
+                        Open Inbox →
                       </Link>
                     ) : null}
                   </div>

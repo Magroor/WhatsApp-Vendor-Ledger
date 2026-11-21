@@ -12,7 +12,7 @@ Tracks credit (bills you owe) and debit (payments) for each vendor, from WhatsAp
 | Reports | Weekly, monthly, yearly; per vendor or all; credit/debit, opening/closing balance, aging; CSV share + print/PDF. |
 
 ## Easiest ways to add bills (no WhatsApp Business needed)
-- **📷 Scan bill** in the Inbox: take a photo / pick a WhatsApp screenshot. The vendor is found from the name on the bill.
+- **Add a bill** on the Home page: 📷 Bill photo, 📱 Chat screenshot or 📋 Paste text (with Undo): take a photo / pick a WhatsApp screenshot. The vendor is found from the name on the bill.
 - **iPhone Share menu:** WhatsApp photo or text → Share → KhataLink (3-minute Shortcut setup in the in-app Guide, step 4; needs `CAPTURE_TOKEN`).
 - **Hands-free PC bridge:** a program on an always-on PC watches your saved vendors' chats (no extra SIM, no Meta). Unofficial, read-only. See `bridge/README.md`.
 - **Import chat** (Export Chat) for old months, **paste** in the Inbox, or a **Business number** for full automation.
@@ -23,7 +23,7 @@ Photos need `GEMINI_API_KEY` (free). Uploaded photos are stored in the database 
 npm install
 npm run dev
 ```
-Open http://localhost:3000, go to **Settings → Load demo data**. With no `DATABASE_URL` it uses a built-in local database in `.data/`.
+Open http://localhost:3000, go to **Settings → Load demo data**. With no `DATABASE_URL` it uses a built-in local test database (stored in your home folder, `.khatalink`).
 
 Checks: `npm run typecheck`, `npm run lint`, `npm run build`, and open `/api/selftest` (all checks should pass).
 

@@ -1,6 +1,7 @@
 import { asc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { vendors } from "@/db/schema";
+import ExportGuide from "@/components/ExportGuide";
 import ImportChat from "@/components/ImportChat";
 
 export const dynamic = "force-dynamic";
@@ -14,31 +15,20 @@ export default async function ImportPage() {
   return (
     <div className="space-y-4 rise">
       <p className="tiny muted">
-        Add a whole WhatsApp chat at once, for catching up on old months. Works with your normal WhatsApp.
+        Add a whole WhatsApp chat at once, for catching up on old months. Works with your normal WhatsApp. For a single new bill, use <b>Add a bill</b> on the Home page instead.
       </p>
 
-      <div className="card space-y-2">
-        <p className="h2">Easiest: send it straight from WhatsApp</p>
-        <ol className="tiny muted list-decimal space-y-1 pl-5">
-          <li>In the vendor chat tap the vendor&apos;s name at the top → <b>Export Chat</b> → <b>Without Media</b>.</li>
-          <li>In the share sheet tap <b>KhataLink Import</b> (one-time 2-minute setup in the Guide, step 4).</li>
-          <li>Done. The vendor is taken from the file name and each bill or payment is added. No file browsing.</li>
-        </ol>
-      </div>
-
-      <details className="card">
-        <summary className="h2 cursor-pointer">Or choose the file here (where to find it)</summary>
-        <ol className="tiny muted mt-2 list-decimal space-y-1 pl-5">
-          <li>Export the chat as above, then in the share sheet tap <b>Save to Files</b>.</li>
-          <li>Pick <b>On My iPhone</b> (or iCloud Drive) and tap <b>Save</b>. Remember the name: &quot;WhatsApp Chat - vendor&quot;.</li>
-          <li>Come back here and tap <b>Choose exported file</b> below. In the picker tap <b>Recents</b> at the bottom — the file you just saved is the first one. If not, tap <b>Browse</b> → <b>On My iPhone</b>.</li>
-        </ol>
-        <p className="tiny muted mt-2">
-          Photo-only bills are not in the export. Use <b>Add bills</b> on the Home page for those.
-        </p>
-      </details>
+      <ExportGuide />
 
       <ImportChat vendors={list} />
+
+      <details className="card">
+        <summary className="h2 tap-link cursor-pointer">Advanced: skip the file step with an iPhone Shortcut</summary>
+        <p className="tiny muted mt-2">
+          A Shortcut can add “KhataLink Import” to the share sheet so you never browse for the file. It takes a few minutes to set up
+          (Guide, step 4) and has <b>not been tested on a real iPhone yet</b>. The steps above always work.
+        </p>
+      </details>
     </div>
   );
 }

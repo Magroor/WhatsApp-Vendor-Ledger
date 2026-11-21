@@ -1,5 +1,4 @@
 import Link from "next/link";
-import CaptureForm from "@/components/CaptureForm";
 import ScanBill from "@/components/ScanBill";
 import MessageActions from "@/components/MessageActions";
 import QuickResolve from "@/components/QuickResolve";
@@ -84,8 +83,6 @@ export default async function InboxPage({
       <SyncRetryButton pending={queued} />
 
       <ScanBill vendors={data.vendors.map((v) => ({ id: v.id, name: v.name }))} />
-
-      <CaptureForm vendors={data.vendors} autoOpen={params.compose === "1"} />
 
       <div>
         <SectionTitle title="Inbox" hint="Raw messages with parse outcome" />

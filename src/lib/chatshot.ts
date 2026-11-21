@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { fetchGeminiRaw, normalizeMime } from "./ingest";
+import { fetchGeminiRaw, GEMINI_FAST, GEMINI_SMART, normalizeMime } from "./ingest";
 
 /**
  * Reads a SCREENSHOT OF A WHATSAPP CHAT (several message bubbles) into separate
@@ -27,7 +27,7 @@ const PROMPT = [
   "For a bill or anything that is not a chat, return kind \"bill\" or \"other\" with an empty messages array.",
 ].join("\n");
 
-export async function readChatScreenshot(base64: string, mime: string): Promise<{ shot: ChatShot | null; error?: string }> {
+async function attempt(base64: string, mime: string, models: string[], budgetMs: number): Promise<{ shot: ChatShot | null; error?: string }> {
   const res = await fetchGeminiRaw({
     systemInstruction: { parts: [{ text: PROMPT }] },
     contents: [
@@ -37,7 +37,7 @@ export async function readChatScreenshot(base64: string, mime: string): Promise<
       },
     ],
     generationConfig: { responseMimeType: "application/json", maxOutputTokens: 4096, temperature: 0 },
-  });
+  }, budgetMs, models);
   if (!res.ok) return { shot: null, error: `vision-gemini-${res.status}` };
   try {
     const json = (await res.json()) as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
@@ -59,6 +59,14 @@ export async function readChatScreenshot(base64: string, mime: string): Promise<
   } catch {
     return { shot: null, error: "vision-unreadable" };
   }
+}
+
+/** Fast model first (about 2 s); a bigger model only if the fast read is unreadable or empty. */
+export async function readChatScreenshot(base64: string, mime: string): Promise<{ shot: ChatShot | null; error?: string }> {
+  const first = await attempt(base64, mime, GEMINI_FAST, 24_000);
+  if (first.shot && !(first.shot.kind === "chat" && first.shot.messages.length === 0)) return first;
+  const second = await attempt(base64, mime, GEMINI_SMART, 26_000);
+  return second.shot ? second : first.shot ? first : second;
 }
 
 /** Stable per-message key: the same bubble in two overlapping screenshots dedupes. */
