@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { vendors } from "@/db/schema";
+import { findVendorByAlias } from "./aliases";
 import { findVendorByPhone } from "./ingest";
 
 export const UNASSIGNED_VENDOR = "Unassigned (choose vendor)";
@@ -9,6 +10,9 @@ export const UNASSIGNED_VENDOR = "Unassigned (choose vendor)";
 export async function matchVendorByText(text: string): Promise<number | null> {
   const t = text.toLowerCase();
   if (!t.trim()) return null;
+  // A name or phone this vendor was assigned under before beats guessing from the saved name.
+  const learned = await findVendorByAlias(text);
+  if (learned) return learned;
   const rows = await db
     .select({ id: vendors.id, name: vendors.name })
     .from(vendors)

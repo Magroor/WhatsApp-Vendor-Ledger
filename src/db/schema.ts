@@ -231,3 +231,23 @@ export const mediaBlobs = pgTable("media_blobs", {
   sizeBytes: integer("size_bytes").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * Other names / phone numbers a vendor is known by (Urdu shop name printed on bills, a second
+ * mobile number...). Learned when a person assigns a bill to a vendor, so the next bill with the
+ * same printed name or phone goes to that vendor by itself.
+ */
+export const vendorAliases = pgTable(
+  "vendor_aliases",
+  {
+    id: serial("id").primaryKey(),
+    vendorId: integer("vendor_id")
+      .notNull()
+      .references(() => vendors.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(), // name | phone
+    alias: text("alias").notNull(), // as seen on the bill
+    aliasNorm: text("alias_norm").notNull(), // lowercase text / last 10 digits
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("vendor_aliases_uq").on(t.kind, t.aliasNorm), index("vendor_aliases_vendor_idx").on(t.vendorId)],
+);

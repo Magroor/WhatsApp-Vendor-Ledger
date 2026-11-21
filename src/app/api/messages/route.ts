@@ -1,3 +1,4 @@
+import { learnFromMessage } from "@/lib/aliases";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { transactions, vendors, waMessages } from "@/db/schema";
@@ -140,12 +141,22 @@ export async function PATCH(req: Request) {
   try {
     const result = await reparseMessage(id, override);
     if (!result) return fail("message not found", 404);
+    // A person chose the vendor: remember how this bill names it so the next one is automatic.
+    let learned: string[] = [];
+    if (override.vendorId) {
+      try {
+        learned = (await learnFromMessage(id, override.vendorId)).learned;
+      } catch {
+        /* learning is best-effort */
+      }
+    }
     return ok({
       ok: true,
       transactionId: result.transactionId,
       posted: result.posted,
       reason: result.reason,
       draft: result.draft,
+      learned,
     });
   } catch (error) {
     const message = (error as Error).message;

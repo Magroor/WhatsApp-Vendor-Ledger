@@ -7,6 +7,7 @@ import { findVendorByPhone, processStoredMessageSafe, setTransactionStatus } fro
 import { formatMinor } from "@/lib/money";
 import { captureAuthorized } from "@/lib/session";
 import { getSettings } from "@/lib/settings";
+import { findLikelyDuplicate } from "@/lib/duplicates";
 import { postChatScreenshot } from "@/lib/chatshot-post";
 import { getUnassignedVendorId, matchVendorByText } from "@/lib/vendormatch";
 
@@ -201,8 +202,13 @@ export async function POST(req: Request) {
       | { notes?: string[] }
       | null
       | undefined;
+    const dup =
+      tx && !msgUnassigned
+        ? await findLikelyDuplicate({ id: tx.id, vendorId: tx.vendorId, entryType: tx.entryType, amountMinor: Number(tx.amountMinor), occurredAt: tx.occurredAt })
+        : null;
     results.push({
       messageId,
+      possibleDuplicate: dup ? { transactionId: dup.id, date: dup.occurredAt.toISOString() } : null,
       vendorId: msgVendor.id,
       transactionId: tx?.id ?? null,
       amountMinor: tx ? Number(tx.amountMinor) : null,

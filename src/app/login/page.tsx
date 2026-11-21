@@ -1,10 +1,8 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 export default function LoginPage() {
-  const router = useRouter();
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -19,8 +17,10 @@ export default function LoginPage() {
       body: JSON.stringify({ password }),
     });
     if (res.ok) {
-      router.replace("/");
-      router.refresh();
+      // Full page load (not router.replace): the in-app router may have cached "/" as a redirect
+      // to /login from before signing in, which would leave the person stuck on this page.
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+      window.location.assign("/");
       return;
     }
     const json = await res.json().catch(() => ({}));

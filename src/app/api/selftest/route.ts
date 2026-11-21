@@ -2,8 +2,11 @@ import { ok } from "@/lib/api";
 import { runSelfTests, summarizeTests } from "@/lib/selftest";
 import { runIngestSelfTests } from "@/lib/selftest-ingest";
 import { runReportSelfTests } from "@/lib/selftest-reports";
+import { runPlannerSelfTests } from "@/lib/selftest-planner";
+import { runPriceSelfTests } from "@/lib/selftest-prices";
 import { draftsFromChat, parseChatExport } from "@/lib/chatimport";
 import { parseLedgerText } from "@/lib/parse";
+import { headerNameIn, normName, phonesIn } from "@/lib/aliases";
 import type { TestResult } from "@/lib/selftest";
 
 export const dynamic = "force-dynamic";
@@ -73,8 +76,21 @@ function urduBillTests(): TestResult[] {
   });
 }
 
+
+function aliasTests(): TestResult[] {
+  const bill = "مہران انٹرنیشنل فائل\n26-کبیر سٹریٹ، لاہور\nTel: 042-37245855\nMob: 0333-4428904, 0312-4428904\nتاریخ: 3/3/21";
+  const phones = phonesIn(bill);
+  const header = headerNameIn(bill);
+  return [
+    { suite: "aliases", name: "header line is the shop name", pass: header === "مہران انٹرنیشنل فائل", detail: String(header) },
+    { suite: "aliases", name: "mobile numbers found as last 10 digits", pass: phones.includes("3334428904") && phones.includes("3124428904"), detail: phones.join(",") },
+    { suite: "aliases", name: "name normalising ignores case and punctuation", pass: normName("  Ahmed  TRADERS. ") === "ahmed traders", detail: normName("  Ahmed  TRADERS. ") },
+    { suite: "aliases", name: "a date or total line is not a shop name", pass: headerNameIn("Total 5000\nDate 3/3/21") === null, detail: String(headerNameIn("Total 5000\nDate 3/3/21")) },
+  ];
+}
+
 export async function GET() {
-  const results = [...runSelfTests(), ...runIngestSelfTests(), ...runReportSelfTests(), ...chatImportTests(), ...romanUrduTests(), ...urduBillTests()];
+  const results = [...runSelfTests(), ...runIngestSelfTests(), ...runReportSelfTests(), ...chatImportTests(), ...romanUrduTests(), ...urduBillTests(), ...aliasTests(), ...runPlannerSelfTests(), ...runPriceSelfTests()];
   const summary = summarizeTests(results);
   return ok({ ...summary, results }, summary.failed === 0 ? 200 : 500);
 }

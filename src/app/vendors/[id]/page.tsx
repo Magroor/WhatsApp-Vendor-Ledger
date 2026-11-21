@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import EntryActions from "@/components/EntryActions";
 import ReminderButton from "@/components/ReminderButton";
 import TransactionForm from "@/components/TransactionForm";
+import VendorAliases from "@/components/VendorAliases";
+import { listAliases } from "@/lib/aliases";
 import { Badge, Card, Money, Progress, SectionTitle, StatTile } from "@/components/ui";
 import { formatMinor } from "@/lib/money";
 import { getVendorDetail } from "@/lib/queries";
@@ -28,6 +30,7 @@ export default async function VendorPage({
   if (!data) notFound();
 
   const { vendor, timeZone } = data;
+  const aliases = await listAliases(vendorId);
   const chatLink = waDeepLink(vendor.phone, `Assalam-o-Alaikum ${vendor.name}, khata update from KhataLink.`);
   const openTotal = data.openLots.reduce((a, l) => a + l.remainingMinor, 0);
   const oldest = data.openLots.reduce((a, l) => Math.max(a, l.ageDays), 0);
@@ -115,6 +118,9 @@ export default async function VendorPage({
         <Link href={`/reports?period=monthly&vendorId=${vendor.id}`} className="chip">
           📊 Report
         </Link>
+        <Link href={`/vendors/${vendor.id}/statement`} className="chip">
+          📄 Statement
+        </Link>
       </div>
 
       <div>
@@ -162,6 +168,8 @@ export default async function VendorPage({
           )}
         </Card>
       </div>
+
+      <VendorAliases vendorId={vendor.id} aliases={aliases.map((a) => ({ id: a.id, kind: a.kind, alias: a.alias }))} />
 
       <TransactionForm vendorId={vendor.id} currency={vendor.currency} termsDays={vendor.creditTermsDays} />
 

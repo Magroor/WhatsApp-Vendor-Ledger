@@ -15,6 +15,13 @@
       "when": 1795044376795,
       "tag": "0001_nice_speedball",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1795224640913,
+      "tag": "0002_tranquil_moira_mactaggert",
+      "breakpoints": true
     }
   ]
 }

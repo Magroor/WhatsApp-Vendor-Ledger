@@ -9,6 +9,8 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
   "/inbox": { title: "WhatsApp Inbox", subtitle: "Bills, receipts & voice notes" },
   "/import": { title: "Import chat", subtitle: "From WhatsApp Export Chat" },
   "/guide": { title: "Guide", subtitle: "Set up & use, step by step" },
+  "/review": { title: "Review queue", subtitle: "Bills waiting for you" },
+  "/prices": { title: "Item prices", subtitle: "Price changes by vendor" },
   "/reports": { title: "Reports", subtitle: "Weekly · monthly · yearly" },
   "/settings": { title: "Settings", subtitle: "Integration & automation" },
 };

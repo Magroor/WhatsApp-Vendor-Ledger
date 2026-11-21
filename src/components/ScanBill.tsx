@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import QuickResolve from "@/components/QuickResolve";
+import VoiceAdd from "@/components/VoiceAdd";
 
 type VendorOption = { id: number; name: string };
 type Mode = "bill" | "chat";
@@ -16,6 +17,7 @@ type Result = {
   assumedDirection?: boolean;
   needsVendor?: boolean;
   status?: string;
+  possibleDuplicate?: { transactionId: number; date: string } | null;
 };
 
 type Decoded = { src: CanvasImageSource; width: number; height: number; close: () => void };
@@ -100,10 +102,12 @@ export default function ScanBill({ vendors }: { vendors: VendorOption[] }) {
   const [stage, setStage] = useState<"preparing" | "reading" | null>(null);
   const [seconds, setSeconds] = useState(0);
   const [thumb, setThumb] = useState<string | null>(null);
+  const [voiceOpen, setVoiceOpen] = useState(false);
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState("");
   const [message, setMessage] = useState<{ ok: boolean; text: string; retry?: boolean } | null>(null);
   const [created, setCreated] = useState<number[]>([]);
+  const [repeatOf, setRepeatOf] = useState<string | null>(null);
   const [undone, setUndone] = useState(false);
   const [resolve, setResolve] = useState<{
     messageId: number;
@@ -132,6 +136,7 @@ export default function ScanBill({ vendors }: { vendors: VendorOption[] }) {
   const choices = vendors.filter((v) => !v.name.startsWith("Unassigned"));
 
   function reset() {
+    setRepeatOf(null);
     setMessage(null);
     setCreated([]);
     setUndone(false);
@@ -144,6 +149,7 @@ export default function ScanBill({ vendors }: { vendors: VendorOption[] }) {
     const ids = json.transactionIds ?? results.map((r) => r.transactionId).filter((x): x is number => typeof x === "number");
     setCreated(ids);
     const r = results.length === 1 ? results[0] : null;
+    setRepeatOf(r?.possibleDuplicate ? new Date(r.possibleDuplicate.date).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : null);
     setResolve(
       r && r.messageId && r.amountMinor && (r.assumedDirection || r.needsVendor || r.status === "review")
         ? {
@@ -165,6 +171,7 @@ export default function ScanBill({ vendors }: { vendors: VendorOption[] }) {
     try {
       const res = await fetch("/api/capture", { method: "POST", body, headers, signal: ctl.signal });
       const json = await res.json().catch(() => ({}));
+      if (res.status === 401) throw new Error("You are signed out. Reload KhataLink, sign in, and try again.");
       if (!res.ok) throw new Error(json.error ?? "Could not add this. Please try again.");
       show(json);
     } catch (e) {
@@ -299,7 +306,7 @@ export default function ScanBill({ vendors }: { vendors: VendorOption[] }) {
         aria-label="Choose a photo"
       />
 
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 gap-2">
         <button className={tile} disabled={busy} onClick={() => choose("bill")}>
           <span className="text-[28px] leading-none">📷</span>
           <span className="text-[13px] font-semibold">Bill photo</span>
@@ -309,6 +316,11 @@ export default function ScanBill({ vendors }: { vendors: VendorOption[] }) {
           <span className="text-[28px] leading-none">📱</span>
           <span className="text-[13px] font-semibold">Chat screenshot</span>
           <span className="tiny muted">many messages</span>
+        </button>
+        <button className={tile} disabled={busy} onClick={() => { reset(); setPasteOpen(false); setVoiceOpen(true); }}>
+          <span className="text-[28px] leading-none">🎤</span>
+          <span className="text-[13px] font-semibold">Speak</span>
+          <span className="tiny muted">say it in Urdu</span>
         </button>
         <button className={tile} disabled={busy} onClick={openPaste}>
           <span className="text-[28px] leading-none">📋</span>
@@ -337,6 +349,8 @@ export default function ScanBill({ vendors }: { vendors: VendorOption[] }) {
           />
         </div>
       </details>
+
+      {voiceOpen ? <VoiceAdd vendors={vendors} onClose={() => setVoiceOpen(false)} /> : null}
 
       {pasteOpen ? (
         <div className="space-y-2 rounded-2xl border border-indigo-400/30 bg-indigo-500/10 p-3">
@@ -404,6 +418,11 @@ export default function ScanBill({ vendors }: { vendors: VendorOption[] }) {
           className={`rounded-2xl p-3 text-sm ${message.ok ? "bg-emerald-500/15 text-emerald-200" : "bg-rose-500/15 text-rose-200"}`}
         >
           <p>{undone ? "Undone. That entry was voided." : message.text}</p>
+          {repeatOf && !undone ? (
+            <p className="mt-1 rounded-lg bg-amber-400/20 px-2 py-1 text-amber-100">
+              ⚠ Looks like a repeat: the same vendor, type and amount was already added around {repeatOf}. Tap Undo if it is the same bill.
+            </p>
+          ) : null}
           <div className="mt-2 flex flex-wrap gap-2">
             {message.retry ? (
               <button className="btn btn-sm" onClick={retry} disabled={busy}>

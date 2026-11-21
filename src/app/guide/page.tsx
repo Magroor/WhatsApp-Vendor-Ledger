@@ -49,6 +49,11 @@ export default function GuidePage() {
           payment message in it is added; repeats are skipped.
         </p>
         <p>
+          <b>Speak:</b> tap <b>🎤 Speak</b>, say something like “Ahmed Traders ko paanch hazar ka credit add karo” (Urdu, Roman
+          Urdu or English), then check what the app heard, the amount and the vendor, and tap <b>Save to ledger</b>. It never
+          saves until you confirm.
+        </p>
+        <p>
           <b>B. Text messages: Copy, then Paste.</b> WhatsApp has no Share button for text. Press and hold
           the vendor&apos;s message → <b>Copy</b>. Open KhataLink → Home → tap{" "}
           <b>📋 Paste text</b> (allow “Paste” the first time), check the text, then <b>Add to ledger</b>. <b>Photos and PDFs:</b> open
@@ -119,7 +124,9 @@ export default function GuidePage() {
           Clear messages are added automatically. Unclear ones wait in the{" "}
           <Link href="/inbox" className="underline">Inbox</Link> under “Needs review” — tap one, correct
           the amount or type (credit = you owe, debit = you paid) and confirm. Wrong entries can be
-          voided; the history is always kept.
+          voided; the history is always kept. The <Link href="/review" className="underline">Review queue</Link> lists everything waiting for you, with a
+          one-tap <b>Confirm all</b> for the entries that look clean. After you choose a vendor for a bill once, the app
+          remembers that bill&apos;s shop name and phone numbers (see “Also known as” on the vendor page).
         </p>
       </Step>
 
@@ -127,7 +134,8 @@ export default function GuidePage() {
         <p>
           Open <Link href="/reports" className="underline">Reports</Link>, choose Weekly, Monthly or
           Yearly, and optionally one vendor. Use <b>Share CSV</b> to send it by WhatsApp or email, or{" "}
-          <b>Print / PDF</b> and “Save to Files”.
+          <b>Print / PDF</b> and “Save to Files”. Each vendor page has a <b>📄 Statement</b> you can share on WhatsApp, Home shows <b>Pay this week</b>, and
+          <Link href="/prices" className="underline">Item prices</Link> alerts you when a vendor raises a rate.
         </p>
       </Step>
 

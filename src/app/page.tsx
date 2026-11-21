@@ -1,5 +1,7 @@
 import Link from "next/link";
+import PayThisWeek from "@/components/PayThisWeek";
 import ScanBill from "@/components/ScanBill";
+import { getPayPlan } from "@/lib/planner";
 import { Badge, Card, EmptyState, Money, SectionTitle, StatTile } from "@/components/ui";
 import { formatMinor } from "@/lib/money";
 import { getDashboard } from "@/lib/queries";
@@ -9,7 +11,7 @@ import { whatsappConfigured } from "@/lib/wa";
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const data = await getDashboard();
+  const [data, payPlan] = await Promise.all([getDashboard(), getPayPlan()]);
   const live = whatsappConfigured();
   const pending = data.stats.pendingMessages;
   const maxBalance = Math.max(
@@ -51,6 +53,8 @@ export default async function DashboardPage() {
           />
         </div>
       </Card>
+
+      {payPlan.vendors.length > 0 ? <PayThisWeek plan={payPlan} /> : null}
 
       <div>
         <SectionTitle
@@ -95,6 +99,12 @@ export default async function DashboardPage() {
         </Link>
         <Link href="/reports?period=monthly" className="btn">
           📊 Monthly report
+        </Link>
+        <Link href="/prices" className="btn">
+          💰 Item prices
+        </Link>
+        <Link href="/review" className="btn">
+          ✅ Review queue
         </Link>
       </div>
 
