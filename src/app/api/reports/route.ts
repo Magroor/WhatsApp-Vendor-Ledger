@@ -1,30 +1,31 @@
+import { eq } from "drizzle-orm";
 import { db } from "@/db";
-import { reportSnapshots } from "@/db/schema";
-import { fail, ok, parseId } from "@/lib/api";
+import { reportSnapshots, vendors } from "@/db/schema";
+import { fail, ok } from "@/lib/api";
 import { businessTimeZone } from "@/lib/queries";
-import { buildReport, parseAnchor, type PeriodType } from "@/lib/reports";
+import { buildReport, parseReportQuery } from "@/lib/reports";
 import { getSettings } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
 
-const PERIODS: PeriodType[] = ["weekly", "monthly", "yearly"];
-
 export async function GET(req: Request) {
   const url = new URL(req.url);
-  const periodParam = (url.searchParams.get("period") ?? "monthly") as PeriodType;
-  const period = PERIODS.includes(periodParam) ? periodParam : "monthly";
-  const vendorId = parseId(url.searchParams.get("vendorId")) ?? undefined;
-
   const settings = await getSettings();
   const timeZone = businessTimeZone(settings);
-  const anchorParam = url.searchParams.get("anchor");
-  const anchor = anchorParam ? parseAnchor(anchorParam, timeZone) : new Date();
-  if (!anchor) return fail("invalid anchor");
+  const query = parseReportQuery(url.searchParams, timeZone);
+  if (!query.ok) return fail(query.error);
+  const { period, vendorId, anchor, kind } = query;
+
+  if (vendorId) {
+    const found = await db.select({ id: vendors.id }).from(vendors).where(eq(vendors.id, vendorId)).limit(1);
+    if (!found[0]) return fail("vendor not found", 404);
+  }
 
   const report = await buildReport({
     type: period,
     anchor,
     vendorId,
+    kind,
     currency: settings.currency,
     timeZone,
   });

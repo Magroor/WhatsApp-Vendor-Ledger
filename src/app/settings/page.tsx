@@ -1,3 +1,4 @@
+import PushSettings from "@/components/PushSettings";
 import ResetData from "@/components/ResetData";
 import { SeedButton, SelfTestPanel, SettingsForm, TestWebhookButton } from "@/components/SettingsClient";
 import { Badge, Card, SectionTitle, StatTile } from "@/components/ui";
@@ -43,6 +44,8 @@ export default async function SettingsPage() {
       </a>
 
       <SettingsForm initial={settings} />
+
+      <PushSettings />
 
       <Card className="border-indigo-400/30 bg-indigo-500/10">
         <SectionTitle title="WhatsApp integration" hint="Meta WhatsApp Business Cloud API" />

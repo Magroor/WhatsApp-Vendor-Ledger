@@ -1,12 +1,16 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import AllocatePayment from "@/components/AllocatePayment";
+import BillStatus from "@/components/BillStatus";
 import EntryActions from "@/components/EntryActions";
+import { loadBillStatuses } from "@/lib/allocations";
 import ReminderButton from "@/components/ReminderButton";
 import TransactionForm from "@/components/TransactionForm";
 import VendorAliases from "@/components/VendorAliases";
 import { listAliases } from "@/lib/aliases";
 import { Badge, Card, Money, Progress, SectionTitle, StatTile } from "@/components/ui";
 import { formatMinor } from "@/lib/money";
+import { labelsFor } from "@/lib/kind";
 import { getVendorDetail } from "@/lib/queries";
 import { fmtDate, fmtDateTime, timeAgo } from "@/lib/time";
 import { waDeepLink } from "@/lib/wa";
@@ -30,7 +34,12 @@ export default async function VendorPage({
   if (!data) notFound();
 
   const { vendor, timeZone } = data;
+  const L = labelsFor(vendor.kind);
+  const isCustomer = L.kind === "customer";
   const aliases = await listAliases(vendorId);
+  const billStatuses = await loadBillStatuses(vendorId);
+  const billStatusById = new Map((billStatuses?.bills ?? []).map((b) => [b.billId, b]));
+  const paymentStatusById = new Map((billStatuses?.payments ?? []).map((p) => [p.paymentId, p]));
   const chatLink = waDeepLink(vendor.phone, `Assalam-o-Alaikum ${vendor.name}, khata update from KhataLink.`);
   const openTotal = data.openLots.reduce((a, l) => a + l.remainingMinor, 0);
   const oldest = data.openLots.reduce((a, l) => Math.max(a, l.ageDays), 0);
@@ -43,19 +52,28 @@ export default async function VendorPage({
           <div className="min-w-0">
             <p className="h2 truncate">{vendor.name}</p>
             <p className="tiny muted mt-1">
-              {[vendor.businessType, vendor.city].filter(Boolean).join(" · ") || "Vendor"}
+              {L.khataTitle}
+              {[vendor.businessType, vendor.city].filter(Boolean).length
+                ? ` · ${[vendor.businessType, vendor.city].filter(Boolean).join(" · ")}`
+                : ""}
               {vendor.phone ? ` · ${vendor.phone}` : ""}
             </p>
             <div className="mt-2 flex flex-wrap gap-2">
-              <Badge tone={data.balanceMinor > 0 ? "debit" : data.balanceMinor < 0 ? "credit" : "muted"}>
-                {data.balanceMinor > 0 ? "You owe" : data.balanceMinor < 0 ? "Owes you" : "Settled"}
-              </Badge>
+              {isCustomer ? (
+                <Badge tone={data.balanceMinor > 0 ? "credit" : data.balanceMinor < 0 ? "debit" : "muted"}>
+                  {data.balanceMinor > 0 ? L.balanceLabel : data.balanceMinor < 0 ? L.advanceLabel : "Settled"}
+                </Badge>
+              ) : (
+                <Badge tone={data.balanceMinor > 0 ? "debit" : data.balanceMinor < 0 ? "credit" : "muted"}>
+                  {data.balanceMinor > 0 ? L.balanceLabel : data.balanceMinor < 0 ? "Owes you" : "Settled"}
+                </Badge>
+              )}
               <Badge tone="brand">Net-{vendor.creditTermsDays} terms</Badge>
               {overdue > 0 ? <Badge tone="warn">{overdue}d overdue</Badge> : null}
             </div>
           </div>
           <div className="text-right">
-            <p className="tiny muted">Running balance</p>
+            <p className="tiny muted">{isCustomer ? L.balanceLabel : "Running balance"}</p>
             <Money minor={data.balanceMinor} currency={vendor.currency} className="text-[22px] font-extrabold" />
             <p className="tiny muted mt-1">
               CR {formatMinor(data.totals.credit, vendor.currency, { decimals: false })} · DR{" "}
@@ -77,7 +95,7 @@ export default async function VendorPage({
           ) : (
             <span className="btn btn-sm opacity-50">💬 No number</span>
           )}
-          <ReminderButton vendorId={vendor.id} vendorName={vendor.name} size="md" />
+          <ReminderButton vendorId={vendor.id} vendorName={vendor.name} size="md" kind={L.kind} />
         </div>
       </Card>
 
@@ -110,10 +128,10 @@ export default async function VendorPage({
           All
         </Link>
         <Link href={`/vendors/${vendor.id}?filter=credit`} className="chip" data-active={filter === "credit"}>
-          Credit · year ({formatMinor(data.periodTotals.yearly.creditMinor, vendor.currency, { decimals: false })})
+          {isCustomer ? L.creditTitle : "Credit"} · year ({formatMinor(data.periodTotals.yearly.creditMinor, vendor.currency, { decimals: false })})
         </Link>
         <Link href={`/vendors/${vendor.id}?filter=debit`} className="chip" data-active={filter === "debit"}>
-          Debit · year ({formatMinor(data.periodTotals.yearly.debitMinor, vendor.currency, { decimals: false })})
+          {isCustomer ? L.debitTitle : "Debit"} · year ({formatMinor(data.periodTotals.yearly.debitMinor, vendor.currency, { decimals: false })})
         </Link>
         <Link href={`/reports?period=monthly&vendorId=${vendor.id}`} className="chip">
           📊 Report
@@ -124,7 +142,10 @@ export default async function VendorPage({
       </div>
 
       <div>
-        <SectionTitle title="Open bills & aging" hint="FIFO settlement of payments against bills" />
+        <SectionTitle
+          title={isCustomer ? "Unpaid sales & aging" : "Open bills & aging"}
+          hint={isCustomer ? "Payments received settle the oldest sales first" : "FIFO settlement of payments against bills"}
+        />
         <Card>
           <div className="mb-3">
             <div className="flex items-center justify-between">
@@ -141,7 +162,9 @@ export default async function VendorPage({
             </div>
           </div>
           {data.openLots.length === 0 ? (
-            <p className="tiny muted">No open bills — everything is settled. 🎉</p>
+            <p className="tiny muted">
+              {isCustomer ? "No unpaid sales — everything is settled. 🎉" : "No open bills — everything is settled. 🎉"}
+            </p>
           ) : (
             <div className="space-y-2">
               {data.openLots.slice(0, 6).map((lot) => (
@@ -150,7 +173,7 @@ export default async function VendorPage({
                     <p className="text-[13px] font-semibold">
                       {lot.isOpening
                         ? "Opening balance"
-                        : `Bill #${lot.transactionId}${lot.reference ? ` · ref ${lot.reference}` : ""}`}
+                        : `${isCustomer ? "Sale" : "Bill"} #${lot.transactionId}${lot.reference ? ` · ref ${lot.reference}` : ""}`}
                     </p>
                     <p className="tiny muted">
                       {fmtDate(lot.occurredAt, timeZone)} · due {lot.dueDate ? fmtDate(lot.dueDate) : "n/a"}
@@ -171,7 +194,7 @@ export default async function VendorPage({
 
       <VendorAliases vendorId={vendor.id} aliases={aliases.map((a) => ({ id: a.id, kind: a.kind, alias: a.alias }))} />
 
-      <TransactionForm vendorId={vendor.id} currency={vendor.currency} termsDays={vendor.creditTermsDays} />
+      <TransactionForm vendorId={vendor.id} currency={vendor.currency} termsDays={vendor.creditTermsDays} kind={L.kind} />
 
       <div>
         <SectionTitle title="Ledger entries" hint={`${data.transactions.length} entries · newest first`} />
@@ -200,6 +223,11 @@ export default async function VendorPage({
                       {t.dueDate ? ` · due ${fmtDate(t.dueDate)}` : ""}
                       {t.paymentMode ? ` · ${t.paymentMode}` : ""}
                     </p>
+                    {t.entryType === "credit" && t.status === "confirmed" ? (
+                      <div className="mt-1">
+                        <BillStatus status={billStatusById.get(t.id)} currency={t.currency} />
+                      </div>
+                    ) : null}
                     {t.description ? <p className="tiny muted mt-1">{t.description}</p> : null}
                     {t.items.length ? (
                       <details className="mt-2">
@@ -236,6 +264,15 @@ export default async function VendorPage({
                     <EntryActions transactionId={t.id} status={t.status} />
                   </div>
                 </div>
+                {t.entryType === "debit" && t.status === "confirmed" ? (
+                  <AllocatePayment
+                    paymentId={t.id}
+                    vendorId={vendor.id}
+                    currency={t.currency}
+                    amountMinor={t.amountMinor}
+                    allocatedMinor={paymentStatusById.get(t.id)?.allocatedMinor ?? 0}
+                  />
+                ) : null}
               </Card>
             ))}
           </div>
@@ -246,7 +283,7 @@ export default async function VendorPage({
         <SectionTitle title="WhatsApp history" hint="Immutable source-of-truth messages" />
         <Card>
           {data.messages.length === 0 ? (
-            <p className="tiny muted">No WhatsApp messages linked to this vendor yet.</p>
+            <p className="tiny muted">No WhatsApp messages linked to this {L.nounLower} yet.</p>
           ) : (
             <div className="space-y-3">
               {data.messages.map((m) => (

@@ -195,6 +195,7 @@ export default async function InboxPage({
                   entryType={m.txEntryType === "credit" || m.txEntryType === "debit" ? m.txEntryType : null}
                   assumed={directionAssumed(m)}
                   currency={m.txCurrency ?? "PKR"}
+                  kind={m.vendorKind}
                 />
               ) : null}
 

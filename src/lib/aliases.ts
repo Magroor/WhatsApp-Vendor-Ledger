@@ -32,6 +32,11 @@ export function headerNameIn(text: string): string | null {
     const letters = (line.match(/\p{L}/gu) ?? []).length;
     if (letters < 4 || letters < line.length * 0.6) continue;
     if (/^(bill|invoice|cash memo|date|total|tel|mob|phone|customer|name|no\b|نمبر|تاریخ)/i.test(line)) continue;
+    // Printed form labels on blank bill pads ("shopkeeper's name:", "customer:", "signature"...) are
+    // NOT a vendor name: they are identical on every bill from the same pad.
+    if (/[:：]\s*$/.test(line)) continue;
+    if (/^(نام|دستخط|تفصیل|میزان|رقم|ریٹ|نرخ|تعداد|فون|موبائل|پتہ|کل)(\s|$)/.test(line)) continue;
+    if (/^(name|customer|address|signature|description|qty|quantity|rate|amount|rupees|particulars|s\.?\s*no)\b/i.test(line)) continue;
     return line;
   }
   return null;

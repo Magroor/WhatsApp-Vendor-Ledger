@@ -16,8 +16,23 @@ import {
   zonedToUtc,
   type CivilDate,
 } from "./time";
+import { labelsFor, normalizeKind, type PartyKind } from "./kind";
+import { getSettings } from "./settings";
 
 export type PeriodType = "weekly" | "monthly" | "yearly";
+
+/**
+ * Pure: keep only rows whose party is of `kind`. `kindOf` maps vendorId -> kind;
+ * unknown ids count as vendors (the column default). No kind = keep everything.
+ */
+export function filterByKind<T extends { vendorId: number }>(
+  rows: readonly T[],
+  kindOf: ReadonlyMap<number, unknown>,
+  kind?: PartyKind,
+): T[] {
+  if (!kind) return [...rows];
+  return rows.filter((r) => normalizeKind(kindOf.get(r.vendorId)) === kind);
+}
 
 /** Only these statuses ever count toward totals, balances, aging or counts. */
 export const POSTED_STATUSES = ["confirmed"] as const;
@@ -164,11 +179,59 @@ export function parseAnchor(raw: string | null | undefined, timeZone?: string): 
   const m = /^(\d{4})(?:-(\d{2}))?(?:-(\d{2}))?$/.exec(raw.trim());
   if (m) {
     const c = { y: Number(m[1]), m: Number(m[2] ?? 1), d: Number(m[3] ?? 1) };
-    if (c.m < 1 || c.m > 12 || c.d < 1 || c.d > 31) return null;
+    if (c.y < ANCHOR_MIN_YEAR || c.y > ANCHOR_MAX_YEAR) return null;
+    // Real calendar dates only: 2026-02-31 must not silently become March.
+    if (c.m < 1 || c.m > 12 || c.d < 1 || c.d > daysInMonth(c.y, c.m)) return null;
     return zonedToUtc(c, tz, 12);
   }
   const d = new Date(raw);
-  return Number.isNaN(d.getTime()) ? null : d;
+  if (Number.isNaN(d.getTime())) return null;
+  const y = d.getUTCFullYear();
+  return y < ANCHOR_MIN_YEAR || y > ANCHOR_MAX_YEAR ? null : d;
+}
+
+/** Anchors outside this range are rejected (avoids Invalid Date / 500s at the edges). */
+const ANCHOR_MIN_YEAR = 1970;
+const ANCHOR_MAX_YEAR = 2200;
+
+export const REPORT_PERIODS: PeriodType[] = ["weekly", "monthly", "yearly"];
+
+/**
+ * Shared query parsing for /api/reports and /api/reports/export. A parameter
+ * that is present but invalid is an error — it must never silently widen the
+ * report to all vendors or jump to the current period.
+ */
+export function parseReportQuery(
+  params: URLSearchParams,
+  timeZone?: string,
+):
+  | { ok: true; period: PeriodType; vendorId?: number; anchor: Date; kind: PartyKind }
+  | { ok: false; error: string } {
+  const kindParam = params.get("kind");
+  if (kindParam && kindParam !== "vendor" && kindParam !== "customer") {
+    return { ok: false, error: "kind must be vendor or customer" };
+  }
+  const kind: PartyKind = kindParam === "customer" ? "customer" : "vendor";
+  const periodParam = params.get("period");
+  let period: PeriodType = "monthly";
+  if (periodParam) {
+    if (!(REPORT_PERIODS as string[]).includes(periodParam)) {
+      return { ok: false, error: "period must be weekly, monthly or yearly" };
+    }
+    period = periodParam as PeriodType;
+  }
+  const vendorParam = params.get("vendorId");
+  let vendorId: number | undefined;
+  if (vendorParam) {
+    const s = vendorParam.trim();
+    const n = /^\d{1,10}$/.test(s) ? Number(s) : NaN;
+    if (!(n > 0 && n <= 2_147_483_647)) return { ok: false, error: "invalid vendorId" };
+    vendorId = n;
+  }
+  const anchorParam = params.get("anchor");
+  const anchor = anchorParam ? parseAnchor(anchorParam, timeZone) : new Date();
+  if (!anchor) return { ok: false, error: "invalid anchor (use YYYY, YYYY-MM or YYYY-MM-DD between 1970 and 2200)" };
+  return { ok: true, period, vendorId, anchor, kind };
 }
 
 export async function loadLedgerRows(options: {
@@ -179,6 +242,8 @@ export async function loadLedgerRows(options: {
   endExclusive?: Date;
   before?: Date;
   statuses?: string[];
+  /** Only parties of this kind. Omitted = every party (other callers rely on that). */
+  kind?: PartyKind;
 }): Promise<LedgerRow[]> {
   const statuses = options.statuses ?? [...POSTED_STATUSES];
   const filters = [
@@ -186,6 +251,7 @@ export async function loadLedgerRows(options: {
     inArray(transactions.entryType, ["credit", "debit"]),
   ];
   if (options.vendorId) filters.push(eq(transactions.vendorId, options.vendorId));
+  if (options.kind) filters.push(eq(vendors.kind, options.kind));
   if (options.start) filters.push(gte(transactions.occurredAt, options.start));
   if (options.end) filters.push(lte(transactions.occurredAt, options.end));
   if (options.endExclusive) filters.push(lt(transactions.occurredAt, options.endExclusive));
@@ -234,7 +300,7 @@ export type OpeningBalance = {
 };
 
 /** vendors.opening_balance_minor (payable at onboarding; negative = advance). */
-export async function loadOpeningBalances(vendorId?: number): Promise<OpeningBalance[]> {
+export async function loadOpeningBalances(vendorId?: number, kind?: PartyKind): Promise<OpeningBalance[]> {
   const rows = await db
     .select({
       vendorId: vendors.id,
@@ -244,7 +310,12 @@ export async function loadOpeningBalances(vendorId?: number): Promise<OpeningBal
       asOf: vendors.createdAt,
     })
     .from(vendors)
-    .where(vendorId ? eq(vendors.id, vendorId) : undefined);
+    .where(
+      and(
+        vendorId ? eq(vendors.id, vendorId) : undefined,
+        kind ? eq(vendors.kind, kind) : undefined,
+      ),
+    );
   return rows
     .map((r) => ({
       ...r,
@@ -532,6 +603,8 @@ export type ReportLineItem = {
 };
 
 export type ReportPayload = {
+  /** Party kind covered (absent on old snapshots = vendor). */
+  kind?: PartyKind;
   period: {
     type: PeriodType;
     key: string;
@@ -565,10 +638,43 @@ export type ReportPayload = {
   lineItems?: ReportLineItem[];
 };
 
+/**
+ * Report for the /reports and /reports/print pages, scoped to one party kind.
+ * Lenient like the pages always were: a bad anchor falls back to now.
+ */
+export async function loadKindReportPage(
+  period: PeriodType,
+  anchorRaw: string | null | undefined,
+  vendorId: number | undefined,
+  kind: PartyKind,
+) {
+  const settings = await getSettings();
+  const timeZone = resolveTimeZone((settings as { timeZone?: unknown }).timeZone);
+  const report = await buildReport({
+    type: period,
+    anchor: parseAnchor(anchorRaw, timeZone) ?? new Date(),
+    vendorId: vendorId && vendorId > 0 ? vendorId : undefined,
+    kind,
+    currency: settings.currency,
+    timeZone,
+  });
+  return { settings, report, timeZone };
+}
+
+/** Report picker options: parties of one kind, by name. */
+export async function loadPartyOptions(kind: PartyKind) {
+  return db
+    .select({ id: vendors.id, name: vendors.name, archived: vendors.archived })
+    .from(vendors)
+    .where(eq(vendors.kind, kind))
+    .orderBy(vendors.name);
+}
+
 export async function loadReportLineItems(options: {
   vendorId?: number;
   start: Date;
   endExclusive: Date;
+  kind?: PartyKind;
 }): Promise<ReportLineItem[]> {
   const filters = [
     inArray(transactions.status, [...POSTED_STATUSES]),
@@ -577,6 +683,7 @@ export async function loadReportLineItems(options: {
     lt(transactions.occurredAt, options.endExclusive),
   ];
   if (options.vendorId) filters.push(eq(transactions.vendorId, options.vendorId));
+  if (options.kind) filters.push(eq(vendors.kind, options.kind));
   const rows = await db
     .select({
       transactionId: txItems.transactionId,
@@ -614,31 +721,42 @@ export async function buildReport(options: {
   currency?: string;
   timeZone?: string;
   now?: Date;
+  /**
+   * Which parties the report covers. Default "vendor": customers (who owe the
+   * shop) are never mixed into vendor payables. With `vendorId` the party's own
+   * kind wins.
+   */
+  kind?: PartyKind;
 }): Promise<ReportPayload> {
   const tz = resolveTimeZone(options.timeZone);
   const realNow = options.now ?? new Date();
   const range = periodRange(options.type, options.anchor ?? realNow, tz);
   const vendorId = options.vendorId && options.vendorId > 0 ? options.vendorId : undefined;
 
-  const [rows, prevRows, beforeRows, openings, vendorRow, lineItems, parsedRes] = await Promise.all([
-    loadLedgerRows({ vendorId, start: range.start, endExclusive: range.endExclusive }),
-    loadLedgerRows({ vendorId, start: range.previousStart, endExclusive: range.start }),
-    loadLedgerRows({ vendorId, before: range.start }),
-    loadOpeningBalances(vendorId),
-    vendorId
-      ? db
-          .select({
-            id: vendors.id,
-            name: vendors.name,
-            phone: vendors.phone,
-            currency: vendors.currency,
-            openingBalanceMinor: vendors.openingBalanceMinor,
-          })
-          .from(vendors)
-          .where(eq(vendors.id, vendorId))
-          .limit(1)
-      : Promise.resolve([]),
-    loadReportLineItems({ vendorId, start: range.start, endExclusive: range.endExclusive }),
+  const vendorRow = vendorId
+    ? await db
+        .select({
+          id: vendors.id,
+          name: vendors.name,
+          phone: vendors.phone,
+          currency: vendors.currency,
+          openingBalanceMinor: vendors.openingBalanceMinor,
+          kind: vendors.kind,
+        })
+        .from(vendors)
+        .where(eq(vendors.id, vendorId))
+        .limit(1)
+    : [];
+  const kind: PartyKind = vendorRow[0] ? normalizeKind(vendorRow[0].kind) : normalizeKind(options.kind);
+  // A single-party report is already scoped by id; otherwise filter by kind.
+  const kindFilter = vendorId ? undefined : kind;
+
+  const [rows, prevRows, beforeRows, openings, lineItems, parsedRes] = await Promise.all([
+    loadLedgerRows({ vendorId, kind: kindFilter, start: range.start, endExclusive: range.endExclusive }),
+    loadLedgerRows({ vendorId, kind: kindFilter, start: range.previousStart, endExclusive: range.start }),
+    loadLedgerRows({ vendorId, kind: kindFilter, before: range.start }),
+    loadOpeningBalances(vendorId, kindFilter),
+    loadReportLineItems({ vendorId, kind: kindFilter, start: range.start, endExclusive: range.endExclusive }),
     db
       .select({ parsed: sql<number>`count(*)::int` })
       .from(waMessages)
@@ -648,6 +766,9 @@ export async function buildReport(options: {
           lt(waMessages.receivedAt, range.endExclusive),
           eq(waMessages.parseStatus, "parsed"),
           vendorId ? eq(waMessages.vendorId, vendorId) : undefined,
+          kindFilter
+            ? inArray(waMessages.vendorId, db.select({ id: vendors.id }).from(vendors).where(eq(vendors.kind, kindFilter)))
+            : undefined,
         ),
       ),
   ]);
@@ -666,13 +787,20 @@ export async function buildReport(options: {
     prev === 0 ? (curr === 0 ? 0 : 100) : Math.round(((curr - prev) / prev) * 100);
 
   const vendor = vendorRow[0]
-    ? { ...vendorRow[0], openingBalanceMinor: Number(vendorRow[0].openingBalanceMinor ?? 0) }
+    ? {
+        id: vendorRow[0].id,
+        name: vendorRow[0].name,
+        phone: vendorRow[0].phone,
+        currency: vendorRow[0].currency,
+        openingBalanceMinor: Number(vendorRow[0].openingBalanceMinor ?? 0),
+      }
     : null;
   const currency = vendor?.currency ?? options.currency ?? rows[0]?.currency ?? "PKR";
 
   const topTransactions = [...rows].sort((a, b) => b.amountMinor - a.amountMinor).slice(0, 10);
 
   return {
+    kind,
     period: {
       type: options.type,
       key: range.key,
@@ -774,24 +902,27 @@ export function reportToCsv(report: ReportPayload, vendorName?: string): string 
   const day = (v: Date | string) => civilKey(civilOf(toDate(v), tz));
   const lines: string[] = [];
   const row = (...cells: string[]) => lines.push(cells.join(","));
-  const name = vendorName ?? report.vendor?.name ?? "All vendors";
+  // Vendor output is unchanged; customer reports use receivable wording.
+  const L = labelsFor(report.kind);
+  const cust = L.kind === "customer";
+  const name = vendorName ?? report.vendor?.name ?? `All ${L.nounPlural.toLowerCase()}`;
 
-  row("Vendor Ledger Report", csvText(name), csvText(report.period.type), csvText(report.period.key));
+  row(`${L.noun} Ledger Report`, csvText(name), csvText(report.period.type), csvText(report.period.key));
   row("Period", csvText(report.period.startDay ?? day(report.period.start)), csvText(report.period.endDay ?? day(report.period.end)));
   row("Generated", csvText(report.generatedAt), "Time zone", csvText(tz));
   row("Currency", csvText(report.currency), "Amounts in major units");
   lines.push("");
   row("Section", "Metric", "Amount");
-  row("Summary", "Credit", csvAmount(report.summary.creditMinor));
-  row("Summary", "Debit", csvAmount(report.summary.debitMinor));
+  row("Summary", cust ? "Sales on credit" : "Credit", csvAmount(report.summary.creditMinor));
+  row("Summary", cust ? "Payments received" : "Debit", csvAmount(report.summary.debitMinor));
   row("Summary", "Net movement", csvAmount(report.summary.netMinor));
   row("Summary", "Opening balance", csvAmount(report.openingBalanceMinor));
-  row("Summary", "Closing balance", csvAmount(report.closingBalanceMinor));
+  row("Summary", cust ? "Closing balance (they owe you)" : "Closing balance", csvAmount(report.closingBalanceMinor));
   row("Summary", "Tax", csvAmount(report.summary.taxMinor));
   row("Summary", "Credit entries", csvNumber(report.summary.creditCount));
   row("Summary", "Debit entries", csvNumber(report.summary.debitCount));
   lines.push("");
-  row("Vendor", "Credit", "Debit", "Net", "Txn count", "Last activity");
+  row(L.noun, "Credit", "Debit", "Net", "Txn count", "Last activity");
   for (const v of report.vendors) {
     row(
       csvText(v.vendorName),
@@ -815,7 +946,7 @@ export function reportToCsv(report: ReportPayload, vendorName?: string): string 
   row(
     report.entries ? "Entries" : "Top entries",
     "Date",
-    "Vendor",
+    L.noun,
     "Type",
     "Reference",
     "Description",
@@ -848,7 +979,7 @@ export function reportToCsv(report: ReportPayload, vendorName?: string): string 
 
   if (report.lineItems && report.lineItems.length) {
     lines.push("");
-    row("Order item", "Txn", "Date", "Vendor", "Type", "Reference", "Item", "SKU", "Qty", "Unit", "Unit price", "Line total");
+    row("Order item", "Txn", "Date", L.noun, "Type", "Reference", "Item", "SKU", "Qty", "Unit", "Unit price", "Line total");
     report.lineItems.forEach((li, i) => {
       row(
         csvNumber(i + 1),
@@ -868,7 +999,7 @@ export function reportToCsv(report: ReportPayload, vendorName?: string): string 
   }
 
   lines.push("");
-  row("Open lot", "Vendor", "Bill date", "Due date", "Reference", "Original", "Remaining", "Age days", "Days overdue");
+  row("Open lot", L.noun, cust ? "Sale date" : "Bill date", "Due date", "Reference", "Original", "Remaining", "Age days", "Days overdue");
   for (const lot of report.openLots) {
     row(
       lot.isOpening || lot.transactionId <= 0 ? "opening" : csvNumber(lot.transactionId),

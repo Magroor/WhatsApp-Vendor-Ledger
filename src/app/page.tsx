@@ -47,12 +47,45 @@ export default async function DashboardPage() {
             tone="debit"
           />
           <StatTile
-            label="Owed to you"
+            label="Owed to you (receivable)"
             value={formatMinor(data.receivableMinor, data.settings.currency)}
             tone="credit"
+            sub={
+              data.vendorAdvanceMinor > 0
+                ? `+ ${formatMinor(data.vendorAdvanceMinor, data.settings.currency)} vendor advances`
+                : "from customers"
+            }
           />
         </div>
       </Card>
+
+      {data.customerCount > 0 ? (
+        <div>
+          <SectionTitle
+            title="Customers who owe you"
+            hint="Largest receivables"
+            action={
+              <Link href="/vendors?kind=customer" className="pill pill-brand">
+                All →
+              </Link>
+            }
+          />
+          <Card>
+            <div className="space-y-3">
+              {data.topCustomers.length === 0 ? (
+                <p className="tiny muted">No customer owes you right now.</p>
+              ) : (
+                data.topCustomers.map((c) => (
+                  <Link key={c.id} href={`/vendors/${c.id}`} className="flex min-h-10 items-center justify-between gap-3">
+                    <span className="min-w-0 truncate text-[15px] font-semibold">{c.name}</span>
+                    <span className="money-pos text-[15px] font-bold">{formatMinor(c.balanceMinor, c.currency)}</span>
+                  </Link>
+                ))
+              )}
+            </div>
+          </Card>
+        </div>
+      ) : null}
 
       {payPlan.vendors.length > 0 ? <PayThisWeek plan={payPlan} /> : null}
 

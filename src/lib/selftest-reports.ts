@@ -9,6 +9,7 @@ import {
   computeOpenLots,
   csvAmount,
   csvText,
+  filterByKind,
   parseAnchor,
   periodNavigation,
   periodRange,
@@ -371,6 +372,65 @@ export function runReportSelfTests(): TestResult[] {
         csv.includes("Open lot") &&
         !unsafe,
       `${lines.length} lines unsafe=${unsafe}`,
+    ];
+  });
+
+  /* ---- vendor / customer separation (kind filter) ---- */
+  const kindRows = [
+    row({ id: 101, vendorId: 1, entryType: "credit", amountMinor: 10000, occurredAt: new Date("2026-01-05T06:00:00Z") }),
+    row({ id: 102, vendorId: 2, vendorName: "Customer A", entryType: "credit", amountMinor: 7000, occurredAt: new Date("2026-01-06T06:00:00Z") }),
+    row({ id: 103, vendorId: 2, vendorName: "Customer A", entryType: "debit", amountMinor: 2000, occurredAt: new Date("2026-01-07T06:00:00Z") }),
+    row({ id: 104, vendorId: 3, vendorName: "Unknown kind", entryType: "credit", amountMinor: 500, occurredAt: new Date("2026-01-08T06:00:00Z") }),
+  ];
+  const kindOf = new Map<number, unknown>([
+    [1, "vendor"],
+    [2, "customer"],
+  ]);
+  safe("kind filter: vendor totals exclude customers", () => {
+    const s = summarize(filterByKind(kindRows, kindOf, "vendor"));
+    return [s.creditMinor === 10500 && s.debitMinor === 0 && s.vendorCount === 2, `credit=${s.creditMinor} debit=${s.debitMinor}`];
+  });
+  safe("kind filter: customer totals only customers", () => {
+    const s = summarize(filterByKind(kindRows, kindOf, "customer"));
+    return [s.creditMinor === 7000 && s.debitMinor === 2000 && s.netMinor === 5000, `credit=${s.creditMinor} debit=${s.debitMinor}`];
+  });
+  safe("kind filter: no kind keeps every row (other callers unchanged)", () => {
+    const all = filterByKind(kindRows, kindOf);
+    return [all.length === kindRows.length, `${all.length}`];
+  });
+  safe("kind filter: vendor aging has no customer lots", () => {
+    const lots = computeOpenLots(filterByKind(kindRows, kindOf, "vendor"), new Date("2026-01-10T06:00:00Z"), { timeZone: PKT });
+    const total = agingBuckets(lots).reduce((a, b) => a + b.amountMinor, 0);
+    return [total === 10500 && lots.every((l) => l.vendorId !== 2), `total=${total}`];
+  });
+  safe("csv wording: customer report says sales / payments received, vendor unchanged", () => {
+    const base: ReportPayload = {
+      period: { type: "monthly", key: "2026-01", label: "January 2026", start: "2026-01-01T00:00:00.000Z", end: "2026-01-31T23:59:59.999Z" },
+      generatedAt: "2026-02-01T00:00:00.000Z",
+      currency: "PKR",
+      summary: summarize([]),
+      previous: summarize([]),
+      delta: { creditPct: 0, debitPct: 0 },
+      openingBalanceMinor: 0,
+      closingBalanceMinor: 0,
+      series: [],
+      vendors: [],
+      aging: [],
+      openLots: [],
+      topTransactions: [],
+      counts: { messagesParsed: 0, autoPosted: 0 },
+      timeZone: PKT,
+    };
+    const cust = reportToCsv({ ...base, kind: "customer" });
+    const vend = reportToCsv(base);
+    return [
+      cust.startsWith("Customer Ledger Report,All customers") &&
+        cust.includes("Summary,Sales on credit,") &&
+        cust.includes("Summary,Payments received,") &&
+        vend.startsWith("Vendor Ledger Report,All vendors") &&
+        vend.includes("Summary,Credit,") &&
+        !vend.includes("Sales on credit"),
+      cust.split("\r\n")[0],
     ];
   });
 

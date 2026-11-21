@@ -19,12 +19,15 @@ export default function ExportBar({
   vendorId,
   shareText,
   fileName,
+  kind,
 }: {
   period: string;
   anchor: string;
   vendorId?: number;
   shareText: string;
   fileName?: string;
+  /** "customer" scopes CSV / print to customers; omitted = vendors. */
+  kind?: "vendor" | "customer";
 }) {
   const [note, setNote] = useState<string | null>(null);
   const [csv, setCsv] = useState<{ href: string; file: File } | null>(null);
@@ -34,8 +37,9 @@ export default function ExportBar({
   const query = useMemo(() => {
     const q = new URLSearchParams({ period, anchor });
     if (vendorId) q.set("vendorId", String(vendorId));
+    if (kind === "customer") q.set("kind", "customer");
     return q.toString();
-  }, [period, anchor, vendorId]);
+  }, [period, anchor, vendorId, kind]);
   const csvHref = `/api/reports/export?${query}`;
   const name = fileName ?? `ledger-${period}.csv`;
 

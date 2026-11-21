@@ -15,9 +15,10 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
   "/settings": { title: "Settings", subtitle: "Integration & automation" },
 };
 
-export default function AppHeader() {
+export default function AppHeader({ shopName }: { shopName?: string }) {
   const pathname = usePathname();
-  const meta = TITLES[pathname] ?? {
+  const base = TITLES[pathname];
+  const meta = pathname === "/" && shopName ? { title: shopName, subtitle: "Vendor & customer ledger" } : base ?? {
     title: "Vendor Ledger",
     subtitle: pathname.startsWith("/vendors/") ? "Vendor khata" : "Detail",
   };

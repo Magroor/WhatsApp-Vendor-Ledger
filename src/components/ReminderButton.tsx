@@ -16,10 +16,12 @@ export default function ReminderButton({
   vendorId,
   vendorName,
   size = "sm",
+  kind = "vendor",
 }: {
   vendorId: number;
   vendorName: string;
   size?: "sm" | "md";
+  kind?: "vendor" | "customer";
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -53,7 +55,7 @@ export default function ReminderButton({
         onClick={send}
         disabled={busy}
       >
-        {busy ? "Sending…" : "🔔 Reminder"}
+        {busy ? "Sending…" : kind === "customer" ? "🔔 Ask for payment" : "🔔 Reminder"}
       </button>
       {error ? <p className="tiny money-neg">{error}</p> : null}
       {result ? (

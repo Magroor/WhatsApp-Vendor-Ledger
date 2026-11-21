@@ -26,6 +26,10 @@ export type NormalizedWebhook = {
 
 type AnyRecord = Record<string, unknown>;
 
+/** Real WhatsApp text/captions are <= 4096 chars; anything longer is truncated. */
+const MAX_WA_TEXT = 8000;
+const MAX_WA_ID = 256;
+
 function asRecord(value: unknown): AnyRecord | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as AnyRecord)
@@ -107,8 +111,19 @@ export function normalizeWebhook(payload: unknown): NormalizedWebhook {
           mimeType = media ? str(media.mime_type) : null;
           messageType = "audio";
         } else if (type === "button" || type === "interactive") {
+          // Only the human-visible reply text. Never the raw JSON: its
+          // timestamp / phone digits would be parsed as an amount.
           const button = asRecord(m.button);
-          body = button ? str(button.text) : JSON.stringify(m).slice(0, 500);
+          const interactive = asRecord(m.interactive);
+          const reply = interactive
+            ? asRecord(interactive.button_reply) ?? asRecord(interactive.list_reply)
+            : null;
+          const parts = [
+            button ? str(button.text) : null,
+            reply ? str(reply.title) : null,
+            reply ? str(reply.description) : null,
+          ].filter((p): p is string => Boolean(p && p.trim()));
+          body = parts.length ? parts.join(" — ") : null;
           messageType = "text";
         } else if (type === "system") {
           const system = asRecord(m.system);
@@ -117,14 +132,15 @@ export function normalizeWebhook(payload: unknown): NormalizedWebhook {
         }
 
         result.messages.push({
-          waMessageId: id,
-          from,
+          waMessageId: id.slice(0, MAX_WA_ID),
+          from: from.slice(0, 32),
           profileName:
-            result.contacts.find((c) => c.waId === from)?.profileName ?? null,
+            result.contacts.find((c) => c.waId === from)?.profileName?.slice(0, 120) ?? null,
           receivedAt,
           messageType,
-          body,
-          caption,
+          // WhatsApp caps text at 4096 chars; never store an unbounded forged body.
+          body: body === null ? null : body.slice(0, MAX_WA_TEXT),
+          caption: caption === null ? null : caption.slice(0, MAX_WA_TEXT),
           mediaId,
           mimeType,
           phoneNumberId,

@@ -4,6 +4,7 @@ import VendorForm from "@/components/VendorForm";
 import { Avatar, Badge, Card, EmptyState, Money, SectionTitle, StatTile } from "@/components/ui";
 import { formatMinor } from "@/lib/money";
 import { getVendorsList } from "@/lib/queries";
+import { labelsFor, normalizeKind } from "@/lib/kind";
 import { timeAgo } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
@@ -11,41 +12,74 @@ export const dynamic = "force-dynamic";
 export default async function VendorsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ add?: string; tab?: string; q?: string }>;
+  searchParams: Promise<{ add?: string; tab?: string; q?: string; kind?: string }>;
 }) {
   const params = await searchParams;
-  const data = await getVendorsList(params.q);
+  const kind = normalizeKind(params.kind);
+  const L = labelsFor(kind);
+  const isCustomer = kind === "customer";
+  const base = isCustomer ? "/vendors?kind=customer" : "/vendors";
+  const withParam = (p: string) => (isCustomer ? `${base}&${p}` : `${base}?${p}`);
+  const data = await getVendorsList(params.q, kind);
   const showDue = params.tab === "due";
   const dueList = data.vendors.filter((v) => v.overdueDays > 0);
 
   return (
     <div className="space-y-5 rise">
+      <nav className="grid grid-cols-2 gap-2" aria-label="Vendors or customers">
+        <Link href="/vendors" className="chip justify-center" data-active={!isCustomer} aria-current={!isCustomer ? "page" : undefined}>
+          Vendors
+        </Link>
+        <Link
+          href="/vendors?kind=customer"
+          className="chip justify-center"
+          data-active={isCustomer}
+          aria-current={isCustomer ? "page" : undefined}
+        >
+          Customers
+        </Link>
+      </nav>
+
       <div className="grid grid-cols-3 gap-2">
-        <StatTile label="Payable" value={formatMinor(data.totals.payable, data.settings.currency)} tone="debit" />
-        <StatTile label="Receivable" value={formatMinor(data.totals.receivable, data.settings.currency)} tone="credit" />
+        {isCustomer ? (
+          <>
+            <StatTile label="They owe you" value={formatMinor(data.totals.payable, data.settings.currency)} tone="credit" />
+            <StatTile label="Advances" value={formatMinor(data.totals.receivable, data.settings.currency)} tone="debit" />
+          </>
+        ) : (
+          <>
+            <StatTile label="Payable" value={formatMinor(data.totals.payable, data.settings.currency)} tone="debit" />
+            <StatTile label="Receivable" value={formatMinor(data.totals.receivable, data.settings.currency)} tone="credit" />
+          </>
+        )}
         <StatTile label="Overdue" value={formatMinor(data.totals.overdue, data.settings.currency)} tone="brand" />
       </div>
 
-      <VendorForm open={params.add === "1"} />
+      <VendorForm key={kind} open={params.add === "1"} kind={kind} />
 
       <form className="card flex gap-2" action="/vendors">
+        {isCustomer ? <input type="hidden" name="kind" value="customer" /> : null}
+        <label className="sr-only" htmlFor="party-search">
+          Search {L.nounPlural.toLowerCase()}
+        </label>
         <input
+          id="party-search"
           className="field"
           name="q"
           defaultValue={params.q ?? ""}
           placeholder="Search name or WhatsApp number"
           autoComplete="off"
         />
-        <button className="btn btn-sm" type="submit">
+        <button className="btn btn-sm" type="submit" aria-label="Search">
           🔍
         </button>
       </form>
 
       <div className="flex gap-2">
-        <Link href="/vendors" className="chip" data-active={!showDue}>
+        <Link href={base} className="chip" data-active={!showDue}>
           All ({data.vendors.length})
         </Link>
-        <Link href="/vendors?tab=due" className="chip" data-active={showDue}>
+        <Link href={withParam("tab=due")} className="chip" data-active={showDue}>
           Overdue ({dueList.length})
         </Link>
       </div>
@@ -54,10 +88,14 @@ export default async function VendorsPage({
         <div>
           <SectionTitle
             title="Payment reminders"
-            hint="Open bills past their credit terms — one tap WhatsApp nudge"
+            hint={
+              isCustomer
+                ? "Credit sales past their terms — one tap WhatsApp payment request"
+                : "Open bills past their credit terms — one tap WhatsApp nudge"
+            }
           />
           {dueList.length === 0 ? (
-            <EmptyState icon="✅" title="Nothing overdue" hint="Every vendor is inside their credit terms." />
+            <EmptyState icon="✅" title="Nothing overdue" hint={`Every ${L.nounLower} is inside their credit terms.`} />
           ) : (
             <Card>
               <div className="space-y-4">
@@ -73,7 +111,7 @@ export default async function VendorsPage({
                           : "No open bills"}
                       </p>
                     </div>
-                    <ReminderButton vendorId={v.id} vendorName={v.name} />
+                    <ReminderButton vendorId={v.id} vendorName={v.name} kind={kind} />
                   </div>
                 ))}
               </div>
@@ -83,12 +121,19 @@ export default async function VendorsPage({
       ) : null}
 
       <div>
-        <SectionTitle title="Vendor ledgers" hint="Every vendor has an isolated credit/debit khata" />
+        <SectionTitle
+          title={`${L.noun} ledgers`}
+          hint={`Every ${L.nounLower} has an isolated credit/debit khata`}
+        />
         {data.vendors.length === 0 ? (
           <EmptyState
             icon="👥"
-            title="No vendors found"
-            hint="Add a vendor manually, or let WhatsApp auto-create one the first time a bill arrives."
+            title={`No ${L.nounPlural.toLowerCase()} found`}
+            hint={
+              isCustomer
+                ? "Add a customer who buys on credit (udhaar) to track what they owe you."
+                : "Add a vendor manually, or let WhatsApp auto-create one the first time a bill arrives."
+            }
           />
         ) : (
           <div className="space-y-2">

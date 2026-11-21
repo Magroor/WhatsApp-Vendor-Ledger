@@ -33,6 +33,9 @@ export const vendors = pgTable(
       .default(0),
     autoCreateSource: text("auto_create_source").default("manual"),
     needsReview: boolean("needs_review").notNull().default(false),
+    // vendor = a supplier we owe; customer = someone who buys from us on credit (same ledger maths:
+    // credit = bill / sale on credit, debit = payment).
+    kind: text("kind").notNull().default("vendor"),
     notes: text("notes"),
     archived: boolean("archived").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -251,3 +254,36 @@ export const vendorAliases = pgTable(
   },
   (t) => [uniqueIndex("vendor_aliases_uq").on(t.kind, t.aliasNorm), index("vendor_aliases_vendor_idx").on(t.vendorId)],
 );
+
+/**
+ * Which payment (debit) settles which bill (credit), and how much. Lets a payment of Rs 5,000 be
+ * applied to a specific bill of Rs 13,500 so each bill shows what is still open. Payments with no
+ * explicit allocation still settle the oldest bills first (the existing aging rule).
+ */
+export const paymentAllocations = pgTable(
+  "payment_allocations",
+  {
+    id: serial("id").primaryKey(),
+    paymentId: integer("payment_id")
+      .notNull()
+      .references(() => transactions.id, { onDelete: "cascade" }),
+    billId: integer("bill_id")
+      .notNull()
+      .references(() => transactions.id, { onDelete: "cascade" }),
+    amountMinor: bigint("amount_minor", { mode: "number" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("payment_alloc_uq").on(t.paymentId, t.billId), index("payment_alloc_bill_idx").on(t.billId)],
+);
+
+/** Web-push subscriptions (installed iPhone/Android app or desktop browser). */
+export const pushSubscriptions = pgTable("push_subscriptions", {
+  id: serial("id").primaryKey(),
+  endpoint: text("endpoint").notNull().unique(),
+  p256dh: text("p256dh").notNull(),
+  auth: text("auth").notNull(),
+  userAgent: text("user_agent"),
+  prefs: jsonb("prefs").notNull().default({ reviewNeeded: true, dueSoon: true, weekly: false }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+});

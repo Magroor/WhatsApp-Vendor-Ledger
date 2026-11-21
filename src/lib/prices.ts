@@ -234,6 +234,8 @@ export async function loadPurchaseRows(
     eq(transactions.status, "confirmed"),
     eq(transactions.entryType, "credit"),
     isNotNull(txItems.unitPriceMinor),
+    // Only purchases from vendors: customer sales are not prices we pay.
+    eq(vendors.kind, "vendor"),
   ];
   if (opts.vendorId !== undefined) conds.push(eq(transactions.vendorId, opts.vendorId));
   if (opts.sinceDays !== undefined) {

@@ -10,6 +10,7 @@ export type VendorInput = {
   currency?: string;
   creditTermsDays?: number;
   openingBalanceMinor?: number;
+  kind?: "vendor" | "customer";
 };
 
 const clean = (v: unknown, max: number) =>
@@ -71,6 +72,11 @@ export function cleanVendorInput(
       if (minor > 100_000_000_000_00) return { error: "Opening balance is too large. Check the zeros." };
       values.openingBalanceMinor = raw.startsWith("-") ? -minor : minor;
     }
+  }
+  if (has("kind")) {
+    const kind = String(body.kind ?? "").trim().toLowerCase();
+    if (kind !== "vendor" && kind !== "customer") return { error: "Type must be vendor or customer." };
+    values.kind = kind;
   }
   return { values };
 }

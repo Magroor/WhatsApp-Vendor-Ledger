@@ -1,6 +1,9 @@
 import { civilDayDiff, civilKey, civilOf, parseCivil, resolveTimeZone } from "./time";
 import { computeOpenLots, loadLedgerRows, loadOpeningBalances, type OpenLot } from "./reports";
 import { getSettings } from "./settings";
+import { eq } from "drizzle-orm";
+import { db } from "@/db";
+import { vendors as vendorsTable } from "@/db/schema";
 
 /** Days (inclusive of today) that count as "this week" for the planner. */
 export const PLAN_WINDOW_DAYS = 7;
@@ -133,13 +136,16 @@ export function buildPayPlan(lots: OpenLot[], now: Date, tz?: string): PayPlan {
 
 /** Loads confirmed rows + opening balances (like getVendorsList) and builds the plan. */
 export async function getPayPlan(): Promise<PayPlan> {
-  const [settings, rows, openings] = await Promise.all([
+  const [settings, rows, openings, customerRows] = await Promise.all([
     getSettings(),
     loadLedgerRows({ statuses: ["confirmed"] }),
     loadOpeningBalances(),
+    db.select({ id: vendorsTable.id }).from(vendorsTable).where(eq(vendorsTable.kind, "customer")),
   ]);
   const tz = resolveTimeZone((settings as { timeZone?: unknown }).timeZone);
   const now = new Date();
-  const lots = computeOpenLots(rows, now, { openings, timeZone: tz });
+  // Customers owe us; their sales are not bills we pay, so they never enter the planner.
+  const customerIds = new Set(customerRows.map((c) => c.id));
+  const lots = computeOpenLots(rows, now, { openings, timeZone: tz }).filter((l) => !customerIds.has(l.vendorId));
   return buildPayPlan(lots, now, tz);
 }

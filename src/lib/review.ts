@@ -8,6 +8,8 @@ export type ReviewItem = {
   transactionId: number | null;
   vendorId: number | null;
   vendorName: string | null;
+  /** 'vendor' | 'customer' (null when the message has no party yet). */
+  vendorKind: string | null;
   messageType: string;
   text: string;
   amountMinor: number | null;
@@ -42,6 +44,7 @@ export async function getReviewItems(limit = 40): Promise<ReviewItem[]> {
       parsePayload: waMessages.parsePayload,
       vendorId: waMessages.vendorId,
       vendorName: vendors.name,
+      vendorKind: vendors.kind,
       transactionId: transactions.id,
       txType: transactions.entryType,
       txAmount: transactions.amountMinor,
@@ -85,6 +88,7 @@ export async function getReviewItems(limit = 40): Promise<ReviewItem[]> {
         transactionId: r.transactionId,
         vendorId: r.vendorId,
         vendorName: r.vendorName,
+        vendorKind: r.vendorKind ?? null,
         messageType: r.messageType,
         text: (r.body ?? r.caption ?? r.ocrText ?? "").slice(0, 220),
         amountMinor,

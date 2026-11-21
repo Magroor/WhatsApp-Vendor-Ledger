@@ -6,30 +6,11 @@ import { formatMinor } from "@/lib/money";
 import { loadLedgerRows, computeOpenLots } from "@/lib/reports";
 import { getSettings, logAudit } from "@/lib/settings";
 import { sendWhatsAppText, waDeepLink } from "@/lib/wa";
+import { vendorBalanceMinor } from "@/lib/ingest";
+import { normalizeKind } from "@/lib/kind";
+import { buildPartyReminderText } from "@/lib/reminder";
 
 export const dynamic = "force-dynamic";
-
-export function buildReminderText(params: {
-  businessName: string;
-  vendorName: string;
-  balanceMinor: number;
-  currency: string;
-  oldestAgeDays: number;
-  termsDays: number;
-}): string {
-  const lines = [
-    `${params.businessName} — payment reminder 🧾`,
-    `Vendor: ${params.vendorName}`,
-    `Outstanding balance: ${formatMinor(params.balanceMinor, params.currency)}`,
-  ];
-  if (params.oldestAgeDays > params.termsDays) {
-    lines.push(
-      `Oldest open bill is ${params.oldestAgeDays} days old (terms: Net-${params.termsDays}).`,
-    );
-  }
-  lines.push("Kindly clear the pending amount. Reply with a screenshot once paid.");
-  return lines.join("\n");
-}
 
 export async function GET() {
   const settings = await getSettings();
@@ -57,7 +38,7 @@ export async function GET() {
     grouped.set(lot.vendorId, entry);
   }
   const vendorRows = await db
-    .select({ id: vendors.id, phone: vendors.phone, terms: vendors.creditTermsDays })
+    .select({ id: vendors.id, phone: vendors.phone, terms: vendors.creditTermsDays, kind: vendors.kind })
     .from(vendors);
 
   const list = [...grouped.values()]
@@ -66,6 +47,7 @@ export async function GET() {
       return {
         ...g,
         phone: v?.phone ?? null,
+        kind: normalizeKind(v?.kind),
         termsDays: v?.terms ?? settings.defaultTermDays,
         overdueDays: Math.max(0, g.oldestAgeDays - (v?.terms ?? settings.defaultTermDays)),
       };
@@ -110,9 +92,14 @@ export async function POST(req: Request) {
   const settings = await getSettings();
   const rows = await loadLedgerRows({ vendorId, statuses: ["confirmed"] });
   const lots = computeOpenLots(rows, new Date());
-  const balanceMinor = lots.reduce((a, l) => a + l.remainingMinor, 0);
+  const kind = normalizeKind(vendor.kind);
+  // Customers: ask for the full khata balance (includes their opening balance).
+  const balanceMinor =
+    kind === "customer"
+      ? Math.max(0, await vendorBalanceMinor(vendorId))
+      : lots.reduce((a, l) => a + l.remainingMinor, 0);
   const oldestAgeDays = lots.reduce((a, l) => Math.max(a, l.ageDays), 0);
-  const messageText = buildReminderText({
+  const messageText = buildPartyReminderText(kind, {
     businessName: settings.businessName,
     vendorName: vendor.name,
     balanceMinor,

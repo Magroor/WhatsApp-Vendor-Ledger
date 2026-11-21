@@ -1,8 +1,9 @@
+import { notFound } from "next/navigation";
 import PrintButton from "@/components/PrintButton";
 import { parseId } from "@/lib/api";
 import { formatMinor } from "@/lib/money";
-import { getReportPage } from "@/lib/queries";
-import type { PeriodType, ReportLineItem } from "@/lib/reports";
+import { labelsFor, type PartyKind } from "@/lib/kind";
+import { loadKindReportPage, type PeriodType, type ReportLineItem } from "@/lib/reports";
 import { fmtDate, fmtDateTime } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
@@ -28,20 +29,26 @@ const PRINT_CSS = `
 export default async function PrintReportPage({
   searchParams,
 }: {
-  searchParams: Promise<{ period?: string; anchor?: string; vendorId?: string }>;
+  searchParams: Promise<{ period?: string; anchor?: string; vendorId?: string; kind?: string }>;
 }) {
   const params = await searchParams;
   const period: PeriodType =
     params.period === "weekly" || params.period === "yearly" ? params.period : "monthly";
   const vendorId = parseId(params.vendorId) ?? undefined;
 
-  const { report, settings, timeZone } = await getReportPage(period, params.anchor ?? null, vendorId);
+  const requestedKind: PartyKind = params.kind === "customer" ? "customer" : "vendor";
+  const { report, settings, timeZone } = await loadKindReportPage(period, params.anchor ?? null, vendorId, requestedKind);
+  const L = labelsFor(report.kind ?? requestedKind);
+  const isCustomer = L.kind === "customer";
+  // A vendor id that does not exist must not print an empty "Vendor N" statement.
+  if (vendorId && !report.vendor) notFound();
   const s = report.summary;
   const currency = report.currency;
   const vendorName = vendorId ? report.vendor?.name ?? `Vendor ${vendorId}` : null;
 
   const q = new URLSearchParams({ period, anchor: report.period.start });
   if (vendorId) q.set("vendorId", String(vendorId));
+  if (isCustomer) q.set("kind", "customer");
   const backHref = `/reports?${q.toString()}`;
   const csvHref = `/api/reports/export?${q.toString()}`;
 
@@ -68,7 +75,7 @@ export default async function PrintReportPage({
       />
       <header className="border-b border-black/20 pb-3">
         <h1 className="text-2xl font-bold">{settings.businessName}</h1>
-        <p className="text-sm font-semibold">{vendorName ?? "All vendors"}</p>
+        <p className="text-sm font-semibold">{vendorName ?? `All ${L.nounPlural.toLowerCase()}`}</p>
         <p className="text-sm">
           {report.period.label} ledger report · {fmtDate(report.period.startDay ?? report.period.start, timeZone)} →{" "}
           {fmtDate(report.period.endDay ?? report.period.end, timeZone)}
@@ -81,12 +88,12 @@ export default async function PrintReportPage({
 
       <section className="avoid-break mt-4 grid grid-cols-2 gap-3 text-sm">
         <div className="rounded border border-black/15 p-3">
-          <p className="text-xs uppercase tracking-wide text-black/60">Credit (billed)</p>
+          <p className="text-xs uppercase tracking-wide text-black/60">{isCustomer ? "Sales on credit" : "Credit (billed)"}</p>
           <p className="text-lg font-bold">{formatMinor(s.creditMinor, currency)}</p>
-          <p className="text-xs">{s.creditCount} bills</p>
+          <p className="text-xs">{s.creditCount} {isCustomer ? "sales" : "bills"}</p>
         </div>
         <div className="rounded border border-black/15 p-3">
-          <p className="text-xs uppercase tracking-wide text-black/60">Debit (paid)</p>
+          <p className="text-xs uppercase tracking-wide text-black/60">{isCustomer ? "Payments received" : "Debit (paid)"}</p>
           <p className="text-lg font-bold">{formatMinor(s.debitMinor, currency)}</p>
           <p className="text-xs">{s.debitCount} payments</p>
         </div>
@@ -95,7 +102,7 @@ export default async function PrintReportPage({
           <p className="text-lg font-bold">{formatMinor(report.openingBalanceMinor, currency)}</p>
         </div>
         <div className="rounded border border-black/15 p-3">
-          <p className="text-xs uppercase tracking-wide text-black/60">Closing balance</p>
+          <p className="text-xs uppercase tracking-wide text-black/60">{isCustomer ? "They owe you" : "Closing balance"}</p>
           <p className="text-lg font-bold">{formatMinor(report.closingBalanceMinor, currency)}</p>
           <p className="text-xs">net {formatMinor(s.netMinor, currency)}</p>
         </div>
@@ -103,11 +110,11 @@ export default async function PrintReportPage({
 
       {!vendorId ? (
         <section className="mt-5">
-          <h2 className="text-base font-bold">Per-vendor summary</h2>
+          <h2 className="text-base font-bold">Per-{L.nounLower} summary</h2>
           <table className="mt-2 w-full text-left text-xs">
             <thead className="border-b border-black/20 text-black/60">
               <tr>
-                <th className="py-1">Vendor</th>
+                <th className="py-1">{L.noun}</th>
                 <th className="num py-1">Credit</th>
                 <th className="num py-1">Debit</th>
                 <th className="num py-1">Net</th>
@@ -140,7 +147,7 @@ export default async function PrintReportPage({
             <thead className="border-b border-black/20 text-black/60">
               <tr>
                 <th className="py-1">Date</th>
-                {!vendorId ? <th className="py-1">Vendor</th> : null}
+                {!vendorId ? <th className="py-1">{L.noun}</th> : null}
                 <th className="py-1">Ref / details</th>
                 <th className="num py-1">Credit</th>
                 <th className="num py-1">Debit</th>
@@ -201,12 +208,12 @@ export default async function PrintReportPage({
       </section>
 
       <section className="avoid-break mt-5">
-        <h2 className="text-base font-bold">Credit aging</h2>
+        <h2 className="text-base font-bold">{isCustomer ? "Receivable aging" : "Credit aging"}</h2>
         <table className="mt-2 w-full text-left text-xs">
           <thead className="border-b border-black/20 text-black/60">
             <tr>
               <th className="py-1">Bucket (bill age)</th>
-              <th className="num py-1">Open bills</th>
+              <th className="num py-1">{isCustomer ? "Open sales" : "Open bills"}</th>
               <th className="num py-1">Amount</th>
             </tr>
           </thead>
@@ -221,17 +228,17 @@ export default async function PrintReportPage({
           </tbody>
         </table>
         <p className="mt-1 text-[10px] text-black/60">
-          As of {fmtDate(report.agingAsOf ?? report.generatedAt, timeZone)}; payments settle oldest bills first.
+          As of {fmtDate(report.agingAsOf ?? report.generatedAt, timeZone)}; payments settle oldest {isCustomer ? "sales" : "bills"} first.
         </p>
       </section>
 
       {report.openLots.length ? (
         <section className="mt-5">
-          <h2 className="text-base font-bold">Open bills</h2>
+          <h2 className="text-base font-bold">{isCustomer ? "Open sales (they owe you)" : "Open bills"}</h2>
           <table className="mt-2 w-full text-left text-xs">
             <thead className="border-b border-black/20 text-black/60">
               <tr>
-                {!vendorId ? <th className="py-1">Vendor</th> : null}
+                {!vendorId ? <th className="py-1">{L.noun}</th> : null}
                 <th className="py-1">Bill</th>
                 <th className="py-1">Due</th>
                 <th className="num py-1">Original</th>

@@ -2,9 +2,8 @@ import { learnFromMessage } from "@/lib/aliases";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { transactions, vendors, waMessages } from "@/db/schema";
-import { clientKey, fail, ok, parseId, rateLimit, readJson } from "@/lib/api";
+import { clientKey, fail, ok, parseId, parsePositiveAmount, rateLimit, readJson, readJsonObject } from "@/lib/api";
 import { ingestInboundMessage, reparseMessage } from "@/lib/ingest";
-import { parseAmountToMinor } from "@/lib/api";
 import type { EntryType } from "@/lib/parse";
 import type { WaInboundMessage } from "@/lib/wa";
 
@@ -13,8 +12,11 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const status = url.searchParams.get("status");
-  const vendorId = parseId(url.searchParams.get("vendorId"));
-  const limit = Math.min(200, Number.parseInt(url.searchParams.get("limit") ?? "50", 10) || 50);
+  const vendorParam = url.searchParams.get("vendorId");
+  const vendorId = parseId(vendorParam);
+  if (vendorParam && !vendorId) return fail("invalid vendorId");
+  const rawLimit = Number.parseInt(url.searchParams.get("limit") ?? "50", 10);
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(200, rawLimit) : 50;
 
   const filters = [];
   if (status && status !== "all") {
@@ -111,13 +113,25 @@ type PatchBody = {
 };
 
 export async function PATCH(req: Request) {
-  const body = await readJson<PatchBody>(req);
   const url = new URL(req.url);
   const id = parseId(url.searchParams.get("id"));
   if (!id) return fail("id required");
+  const read = await readJsonObject<PatchBody>(req, 64 * 1024);
+  if (!read.ok) return fail(read.error, read.status);
+  const body = read.body;
+
+  // "link" = reparse with a chosen vendor. A missing action means reparse (old clients).
+  if (body.action !== undefined && body.action !== "reparse" && body.action !== "ignore" && body.action !== "link") {
+    return fail("action must be reparse, ignore or link");
+  }
 
   if (body.action === "ignore") {
-    await db.update(waMessages).set({ parseStatus: "ignored" }).where(eq(waMessages.id, id));
+    const updated = await db
+      .update(waMessages)
+      .set({ parseStatus: "ignored" })
+      .where(eq(waMessages.id, id))
+      .returning({ id: waMessages.id });
+    if (!updated[0]) return fail("message not found", 404);
     return ok({ status: "ignored" });
   }
 
@@ -126,9 +140,9 @@ export async function PATCH(req: Request) {
   }
   let amountMinor: number | undefined;
   if (body.amount !== undefined && body.amount !== "") {
-    const parsed = parseAmountToMinor(body.amount);
-    if (parsed === null || parsed <= 0) return fail("amount must be a positive number");
-    amountMinor = parsed;
+    const parsed = parsePositiveAmount(body.amount);
+    if (!parsed.ok) return fail(parsed.error);
+    amountMinor = parsed.minor;
   }
   const vendorId = body.vendorId !== undefined ? parseId(String(body.vendorId)) : null;
   if (body.vendorId !== undefined && !vendorId) return fail("invalid vendorId");
@@ -160,6 +174,9 @@ export async function PATCH(req: Request) {
     });
   } catch (error) {
     const message = (error as Error).message;
-    return fail(message, message === "vendor-not-found" ? 404 : 500);
+    if (message === "vendor-not-found") return fail(message, 404);
+    // Never echo driver errors (they contain the SQL text and parameters).
+    console.error("messages PATCH failed", error);
+    return fail("reparse failed", 500);
   }
 }

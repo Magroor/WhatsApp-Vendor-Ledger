@@ -13,6 +13,13 @@ import {
 } from "./reports";
 import { getSettings, type AppSettingsShape } from "./settings";
 import { resolveTimeZone } from "./time";
+import { normalizeKind, splitBalances, type PartyKind } from "./kind";
+
+/** id -> kind ('vendor' | 'customer') for every party row. */
+async function loadPartyKinds(): Promise<Map<number, PartyKind>> {
+  const rows = await db.select({ id: vendors.id, kind: vendors.kind }).from(vendors);
+  return new Map(rows.map((r) => [r.id, normalizeKind(r.kind)]));
+}
 
 /** Business timezone: app setting `timeZone` -> env BUSINESS_TIMEZONE -> Asia/Karachi. */
 export function businessTimeZone(settings?: Partial<AppSettingsShape> | null): string {
@@ -20,7 +27,7 @@ export function businessTimeZone(settings?: Partial<AppSettingsShape> | null): s
 }
 
 export async function getDashboard() {
-  const [settings, stats] = await Promise.all([getSettings(), dashboardStats()]);
+  const [settings, stats, kinds] = await Promise.all([getSettings(), dashboardStats(), loadPartyKinds()]);
   const tz = businessTimeZone(settings);
   // Started now so they run alongside the week query instead of after it.
   const recentP = Promise.resolve(
@@ -74,20 +81,26 @@ export async function getDashboard() {
     { credit: 0, debit: 0 },
   );
 
-  const payable = stats.vendors
-    .filter((v) => v.balanceMinor > 0)
-    .reduce((a, v) => a + v.balanceMinor, 0);
-  const receivable = stats.vendors
-    .filter((v) => v.balanceMinor < 0)
-    .reduce((a, v) => a + Math.abs(v.balanceMinor), 0);
+  // Payable = what we owe vendors; receivable = what customers owe us. Vendor advances
+  // (negative vendor balances) are money owed back to us, reported separately.
+  const parties = stats.vendors.map((v) => ({ ...v, kind: kinds.get(v.id) ?? ("vendor" as PartyKind) }));
+  const split = splitBalances(parties);
+  const payable = split.payableMinor;
+  const receivable = split.receivableMinor;
 
   const recent = await recentP;
 
   const inbox = await inboxP;
 
-  const topVendors = [...stats.vendors]
+  const topVendors = parties
+    .filter((v) => v.kind === "vendor")
     .sort((a, b) => Math.abs(b.balanceMinor) - Math.abs(a.balanceMinor))
     .slice(0, 4);
+  const customers = parties.filter((v) => v.kind === "customer");
+  const topCustomers = customers
+    .filter((v) => v.balanceMinor > 0)
+    .sort((a, b) => b.balanceMinor - a.balanceMinor)
+    .slice(0, 5);
 
   return {
     settings,
@@ -95,15 +108,19 @@ export async function getDashboard() {
     week: { ...week, creditMinor: totals.credit, debitMinor: totals.debit, netMinor: totals.credit - totals.debit },
     payableMinor: payable,
     receivableMinor: receivable,
+    vendorAdvanceMinor: split.vendorAdvanceMinor,
+    customerAdvanceMinor: split.customerAdvanceMinor,
+    customerCount: customers.length,
     recent: recent.map((r) => ({ ...r, amountMinor: Number(r.amountMinor) })),
     inbox,
     topVendors,
+    topCustomers,
   };
 }
 
-export async function getVendorsList(query?: string) {
-  // All five reads are independent: run them together (one round trip of latency).
-  const [settings, stats, rows, openings, messageCounts] = await Promise.all([
+export async function getVendorsList(query?: string, kind: PartyKind | "all" = "vendor") {
+  // All reads are independent: run them together (one round trip of latency).
+  const [settings, stats, rows, openings, messageCounts, kinds] = await Promise.all([
     getSettings(),
     dashboardStats(),
     loadLedgerRows({ statuses: ["confirmed"] }),
@@ -116,6 +133,7 @@ export async function getVendorsList(query?: string) {
     })
     .from(waMessages)
     .groupBy(waMessages.vendorId),
+    loadPartyKinds(),
   ]);
   const lots = computeOpenLots(rows, new Date(), { openings, timeZone: businessTimeZone(settings) });
   const overdueByVendor = new Map<number, { amountMinor: number; oldestDays: number }>();
@@ -129,6 +147,8 @@ export async function getVendorsList(query?: string) {
 
   const q = query?.trim().toLowerCase();
   const list = stats.vendors
+    .map((v) => ({ ...v, kind: kinds.get(v.id) ?? ("vendor" as PartyKind) }))
+    .filter((v) => kind === "all" || v.kind === kind)
     .filter((v) =>
       q
         ? v.name.toLowerCase().includes(q) || (v.phone ?? "").includes(q.replace(/\D/g, ""))
@@ -305,6 +325,7 @@ export async function getInbox(status?: string) {
       vendorId: waMessages.vendorId,
       vendorName: vendors.name,
       vendorPhone: vendors.phone,
+      vendorKind: vendors.kind,
       direction: waMessages.direction,
       messageType: waMessages.messageType,
       body: waMessages.body,

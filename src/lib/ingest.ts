@@ -882,6 +882,15 @@ export async function processStoredMessage(
       });
     }
 
+    // Push "N bills to check" (fire-and-forget, debounced in lib/push; never blocks or throws here).
+    if (status === "review") {
+      try {
+        void import("./push").then((m) => m.notifyReviewNeeded()).catch(() => undefined);
+      } catch {
+        /* notifications are best-effort */
+      }
+    }
+
     return {
       messageId,
       vendorId: vendor.id,

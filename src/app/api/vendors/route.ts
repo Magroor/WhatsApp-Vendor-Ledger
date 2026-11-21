@@ -28,6 +28,7 @@ export async function GET(req: Request) {
       creditTermsDays: vendors.creditTermsDays,
       opening: vendors.openingBalanceMinor,
       needsReview: vendors.needsReview,
+      kind: vendors.kind,
       createdAt: vendors.createdAt,
       credit: sql<string>`coalesce(sum(case when ${transactions.entryType} = 'credit' then ${transactions.amountMinor} else 0 end), 0)`,
       debit: sql<string>`coalesce(sum(case when ${transactions.entryType} = 'debit' then ${transactions.amountMinor} else 0 end), 0)`,
@@ -85,6 +86,7 @@ export async function POST(req: Request) {
       currency: v.currency ?? "PKR",
       creditTermsDays: v.creditTermsDays ?? 30,
       openingBalanceMinor: v.openingBalanceMinor ?? 0,
+      kind: v.kind ?? "vendor",
       autoCreateSource: "manual",
       needsReview: false,
     })

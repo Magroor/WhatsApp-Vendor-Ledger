@@ -12,6 +12,7 @@ const PUBLIC = [
   /^\/login/,
   /^\/api\/login/,
   /^\/api\/capture/, // does its own auth: login cookie OR bearer token (iPhone Shortcut)
+  /^\/api\/cron\/daily$/, // does its own auth: Bearer CRON_SECRET (Vercel Cron); 401 otherwise
   /^\/_next\//,
   /^\/(manifest\.webmanifest|sw\.js|icon\.png|apple-touch-icon\.png|favicon\.ico)$/,
 ];

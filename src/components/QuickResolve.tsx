@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { formatMinor } from "@/lib/money";
+import { labelsFor } from "@/lib/kind";
 
 type Vendor = { id: number; name: string };
 type EntryType = "credit" | "debit";
@@ -22,6 +23,7 @@ export default function QuickResolve({
   assumed,
   currency = "PKR",
   onSaved,
+  kind = "vendor",
 }: {
   messageId: number;
   vendors: Vendor[];
@@ -33,7 +35,11 @@ export default function QuickResolve({
   assumed: boolean;
   currency?: string;
   onSaved?: () => void;
+  /** 'customer' switches the wording to Sale on credit / Payment received. */
+  kind?: string | null;
 }) {
+  const L = labelsFor(kind);
+  const isCustomer = L.kind === "customer";
   const router = useRouter();
   const vendorUnknown = !vendorId || (vendorName ?? "").startsWith("Unassigned");
   const choices = vendors.filter((v) => !v.name.startsWith("Unassigned"));
@@ -64,7 +70,7 @@ export default function QuickResolve({
       if (!res.ok) throw new Error(json.error ?? "Could not save");
       if (json.posted === false) throw new Error("Could not post this entry. Check the amount.");
       setSaved(
-        `${chosen === "credit" ? "Bill" : "Paid"} ${formatMinor(Math.round(amountNumber * 100), currency)} saved to ${savedVendorName}`,
+        `${chosen === "credit" ? L.creditTitle : L.debitTitle} ${formatMinor(Math.round(amountNumber * 100), currency)} saved to ${savedVendorName}`,
       );
       onSaved?.();
       router.refresh();
@@ -139,8 +145,8 @@ export default function QuickResolve({
             }`}
           >
             <span className="block text-xl">🧾</span>
-            <span className="block text-[15px] font-semibold">Bill</span>
-            <span className="tiny muted block">I owe this (credit)</span>
+            <span className="block text-[15px] font-semibold">{L.creditTitle}</span>
+            <span className="tiny muted block">{isCustomer ? "they owe me (credit)" : "I owe this (credit)"}</span>
           </button>
           <button
             type="button"
@@ -152,8 +158,8 @@ export default function QuickResolve({
             }`}
           >
             <span className="block text-xl">💸</span>
-            <span className="block text-[15px] font-semibold">Paid</span>
-            <span className="tiny muted block">I paid this (debit)</span>
+            <span className="block text-[15px] font-semibold">{L.debitTitle}</span>
+            <span className="tiny muted block">{isCustomer ? "they paid me (debit)" : "I paid this (debit)"}</span>
           </button>
         </div>
       </div>
@@ -173,7 +179,9 @@ export default function QuickResolve({
           </select>
         </div>
       ) : (
-        <p className="tiny muted">Vendor: {vendorName}</p>
+        <p className="tiny muted">
+          {L.noun}: {vendorName}
+        </p>
       )}
 
       {needsSaveButton ? (
@@ -182,10 +190,10 @@ export default function QuickResolve({
           disabled={busy || !type || !vendor || !amountOk}
           onClick={() => type && save(type)}
         >
-          {busy ? "Saving…" : !type ? "Choose Bill or Paid" : !vendor ? "Choose the vendor" : "✔ Save to ledger"}
+          {busy ? "Saving…" : !type ? `Choose ${L.creditTitle} or ${L.debitTitle}` : !vendor ? "Choose the vendor" : "✔ Save to ledger"}
         </button>
       ) : (
-        <p className="tiny muted">{busy ? "Saving…" : "Tap Bill or Paid to save."}</p>
+        <p className="tiny muted">{busy ? "Saving…" : `Tap ${L.creditTitle} or ${L.debitTitle} to save.`}</p>
       )}
       {error ? <p className="text-sm text-rose-300">{error}</p> : null}
     </div>

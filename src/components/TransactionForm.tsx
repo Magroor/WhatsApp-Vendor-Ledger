@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { labelsFor, type PartyKind } from "@/lib/kind";
 
 type ItemRow = { name: string; qty: string; unit: string; unitPrice: string };
 
@@ -9,11 +10,14 @@ export default function TransactionForm({
   vendorId,
   currency,
   termsDays,
+  kind = "vendor",
 }: {
   vendorId: number;
   currency: string;
   termsDays: number;
+  kind?: PartyKind;
 }) {
+  const L = labelsFor(kind);
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -102,13 +106,13 @@ export default function TransactionForm({
           className={`btn ${entryType === "credit" ? "btn-credit" : ""}`}
           onClick={() => setEntryType("credit")}
         >
-          Credit (billed)
+          {L.creditTitle} · {L.creditHint}
         </button>
         <button
           className={`btn ${entryType === "debit" ? "btn-debit" : ""}`}
           onClick={() => setEntryType("debit")}
         >
-          Debit (paid)
+          {L.debitTitle}
         </button>
       </div>
 
@@ -148,7 +152,7 @@ export default function TransactionForm({
         </div>
       ) : (
         <p className="tiny muted">
-          Due date auto-set to Net-{termsDays} from the bill date.
+          Due date auto-set to Net-{termsDays} from the {L.kind === "customer" ? "sale" : "bill"} date.
         </p>
       )}
 

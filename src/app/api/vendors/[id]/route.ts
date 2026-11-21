@@ -59,6 +59,7 @@ export async function PATCH(req: Request, { params }: Params) {
   if (v.currency !== undefined) patch.currency = v.currency;
   if (v.creditTermsDays !== undefined) patch.creditTermsDays = v.creditTermsDays;
   if (v.openingBalanceMinor !== undefined) patch.openingBalanceMinor = v.openingBalanceMinor;
+  if (v.kind !== undefined) patch.kind = v.kind;
   if (body.notes !== undefined) patch.notes = String(body.notes ?? "").slice(0, 2000);
   if (typeof body.archived === "boolean") patch.archived = body.archived;
   if (typeof body.needsReview === "boolean") patch.needsReview = body.needsReview;

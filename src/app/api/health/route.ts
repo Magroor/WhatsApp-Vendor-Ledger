@@ -15,9 +15,21 @@ export async function GET() {
     await db.execute(sql`select 1`);
     const roundTripMs = Date.now() - t1;
     // Startup swallows migration errors, so check the newest table really exists.
-    const photosTable = await db.execute(sql`select 1 from media_blobs limit 1`).then(() => true, () => false);
+    const exists = (q: ReturnType<typeof sql>) => db.execute(q).then(() => true, () => false);
+    const checks = await Promise.all([
+      exists(sql`select 1 from media_blobs limit 1`),
+      exists(sql`select 1 from vendor_aliases limit 1`),
+      exists(sql`select 1 from payment_allocations limit 1`),
+      exists(sql`select 1 from push_subscriptions limit 1`),
+      exists(sql`select kind from vendors limit 1`),
+    ]);
+    const names = ["media_blobs", "vendor_aliases", "payment_allocations", "push_subscriptions", "vendors.kind"];
+    const missing = names.filter((_, i) => !checks[i]);
+    const photosTable = checks[0];
     return Response.json({
-      status: photosTable ? "ok" : "degraded",
+      // "degraded" if a migration did not apply (startup never blocks the site on migration errors).
+      status: missing.length === 0 ? "ok" : "degraded",
+      schema: missing.length === 0 ? "complete" : `missing: ${missing.join(", ")}`,
       photoStorage: photosTable ? "ready" : "missing (run migrations)",
       database: "connected",
       dbFirstQueryMs: firstMs,
@@ -34,7 +46,8 @@ export async function GET() {
         status: "degraded",
         database: "error",
         databaseUrlSet: Boolean(process.env.DATABASE_URL),
-        error: (error as Error).message,
+        // Public page: never show raw database errors (they can name tables or hosts) in production.
+        error: process.env.NODE_ENV === "production" ? "database unavailable" : (error as Error).message,
       },
       { status: 500 },
     );

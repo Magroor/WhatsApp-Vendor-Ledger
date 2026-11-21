@@ -1,5 +1,7 @@
 # KhataLink — WhatsApp Vendor Ledger (iPhone web app)
 
+> Designed and developed by **Muhammad Aun**. 🎁 A gift to **KAMRAN RASHEED** (shop: KAMRAN RASHEED).
+
 Tracks credit (bills you owe) and debit (payments) for each vendor, from WhatsApp messages, with weekly / monthly / yearly reports. It is an installable web app (PWA): iPhone users add it to the Home Screen from Safari — no App Store.
 
 ## What it does
@@ -59,9 +61,15 @@ Needs a Meta developer account and a phone number **not** used in normal WhatsAp
 5. Send a test message from a vendor; it appears in Inbox. In production, unsigned webhooks are rejected.
 The webhook stays public (Meta must reach it); everything else needs the password.
 
+## 6. Phone notifications (optional)
+1. Run `npx web-push generate-vapid-keys` once; set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` (and optionally `VAPID_SUBJECT`, e.g. `mailto:you@shop.pk`).
+2. Set `CRON_SECRET` (long random text). `vercel.json` runs `/api/cron/daily` every day at 04:00 UTC: a "payments due" digest (overdue or due in 2 days) and, on the weekly report day, a weekly summary. On other hosts call it daily with `Authorization: Bearer <CRON_SECRET>`.
+3. On iPhone (iOS 16.4+) open the app **from the Home Screen** → Settings → Notifications → Enable. Notifications do not work in a Safari tab or in `npm run dev`.
+"New bills to review" is sent when a message or upload lands in Needs review.
+
 ## Known limits
 - Cloud API only receives messages sent to the business number; the media link expires, so images must be fetched soon after arrival.
 - Photo reading and live WhatsApp calls were not tested with real keys.
 - Not tested on a physical iPhone.
-- Web push notifications are not implemented.
+- Web push notifications: delivery to a real iPhone has not been tested.
 - Offline: pages show last-loaded data; edits are not queued offline.

@@ -4,6 +4,8 @@ import "./globals.css";
 import AppHeader from "@/components/AppHeader";
 import BottomNav from "@/components/BottomNav";
 import IosRuntime from "@/components/IosRuntime";
+import Credits from "@/components/Credits";
+import { getSettings } from "@/lib/settings";
 
 export const metadata: Metadata = {
   title: "KhataLink — WhatsApp Vendor Ledger",
@@ -35,14 +37,25 @@ export const viewport: Viewport = {
   themeColor: "#05070f",
 };
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+/** Shop name for the Home header; falls back to the default if the database is unreachable. */
+async function shopName(): Promise<string> {
+  try {
+    return (await getSettings()).businessName || "KAMRAN RASHEED";
+  } catch {
+    return "KAMRAN RASHEED";
+  }
+}
+
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  const shop = await shopName();
   return (
     <html lang="en">
       <body className="antialiased">
         <IosRuntime />
         <div className="app-shell">
-          <AppHeader />
+          <AppHeader shopName={shop} />
           <main className="px-4 pb-4 pt-3">{children}</main>
+          <Credits />
           <BottomNav />
         </div>
       </body>

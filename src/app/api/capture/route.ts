@@ -222,6 +222,15 @@ export async function POST(req: Request) {
   }
 
   if (results.every((r) => r.duplicate)) return ok({ summary: "Already added.", duplicate: true, results, needsVendor: false });
+  // Push "N bills to check" after the response (best-effort; debounced in lib/push).
+  if (results.some((r) => r.status === "review")) {
+    try {
+      const { after } = await import("next/server");
+      after(() => import("@/lib/push").then((m) => m.notifyReviewNeeded()).then(() => undefined, () => undefined));
+    } catch {
+      /* notifications are best-effort */
+    }
+  }
   const first = results.find((r) => !r.duplicate) ?? results[0];
   const needsVendor = results.some((r) => r.needsVendor);
   const summary = first.amount

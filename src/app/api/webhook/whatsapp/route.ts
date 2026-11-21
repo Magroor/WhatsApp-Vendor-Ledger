@@ -28,13 +28,18 @@ export async function GET(req: Request) {
  * Inbound WhatsApp messages land here. Every payload is persisted before
  * parsing so nothing is lost if the extraction pipeline fails.
  */
-export async function POST(req: Request) {
-  const raw = await req.text();
-  const signature = req.headers.get("x-hub-signature-256");
+/** Real Meta webhook batches are a few KB; refuse anything absurd before buffering it. */
+const MAX_WEBHOOK_BYTES = 1024 * 1024;
 
+export async function POST(req: Request) {
   if (!rateLimit(clientKey(req, "webhook"), 120, 60_000)) {
     return fail("rate-limited", 429);
   }
+  const declared = Number.parseInt(req.headers.get("content-length") ?? "0", 10);
+  if (declared > MAX_WEBHOOK_BYTES) return fail("payload-too-large", 413);
+  const raw = await req.text();
+  if (raw.length > MAX_WEBHOOK_BYTES) return fail("payload-too-large", 413);
+  const signature = req.headers.get("x-hub-signature-256");
 
   const signatureResult = verifySignature(raw, signature, process.env.WHATSAPP_APP_SECRET);
   if (!signatureResult.ok) {
@@ -83,10 +88,11 @@ export async function POST(req: Request) {
         lastError: (error as Error).message,
         attempts: 1,
       });
+      // Details stay in sync_queue; the caller only learns that it was queued.
       results.push({
         waMessageId: message.waMessageId,
         status: "failed",
-        note: (error as Error).message,
+        note: "queued-for-retry",
       });
     }
   }

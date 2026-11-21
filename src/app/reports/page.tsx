@@ -3,8 +3,8 @@ import ExportBar from "@/components/ExportBar";
 import { Badge, Bars, Card, EmptyState, Money, SectionTitle, StatTile } from "@/components/ui";
 import { parseId } from "@/lib/api";
 import { formatMinor, shareOf } from "@/lib/money";
-import { getReportPage, getVendorOptions } from "@/lib/queries";
-import { fileSlug, type PeriodType } from "@/lib/reports";
+import { labelsFor, type PartyKind } from "@/lib/kind";
+import { fileSlug, loadKindReportPage, loadPartyOptions, type PeriodType } from "@/lib/reports";
 import { fmtDate, timeAgo } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
@@ -23,17 +23,20 @@ function pctLabel(value: number): string {
 export default async function ReportsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ period?: string; anchor?: string; vendorId?: string }>;
+  searchParams: Promise<{ period?: string; anchor?: string; vendorId?: string; kind?: string }>;
 }) {
   const params = await searchParams;
   const period: PeriodType =
     params.period === "weekly" || params.period === "yearly" ? params.period : "monthly";
   const vendorId = parseId(params.vendorId) ?? undefined;
+  const requestedKind: PartyKind = params.kind === "customer" ? "customer" : "vendor";
 
-  const [{ settings, report, timeZone }, vendorOptions] = await Promise.all([
-    getReportPage(period, params.anchor ?? null, vendorId),
-    getVendorOptions(),
-  ]);
+  const { settings, report, timeZone } = await loadKindReportPage(period, params.anchor ?? null, vendorId, requestedKind);
+  // A selected party decides the kind (a customer id shows customer wording).
+  const kind: PartyKind = report.kind ?? requestedKind;
+  const L = labelsFor(kind);
+  const isCustomer = kind === "customer";
+  const vendorOptions = await loadPartyOptions(kind);
   const selectedVendor = vendorId ? report.vendor ?? null : null;
   const currency = report.currency;
   const s = report.summary;
@@ -48,8 +51,8 @@ export default async function ReportsPage({
     `Debit: ${formatMinor(s.debitMinor, currency)}`,
     `Opening: ${formatMinor(report.openingBalanceMinor, currency)}`,
     `Closing balance: ${formatMinor(report.closingBalanceMinor, currency)}`,
-    `Entries: ${s.creditCount + s.debitCount} across ${s.vendorCount} vendors`,
-    `Open bills: ${formatMinor(openTotal, currency)}`,
+    `Entries: ${s.creditCount + s.debitCount} across ${s.vendorCount} ${L.nounPlural.toLowerCase()}`,
+    `${isCustomer ? "Open sales (they owe you)" : "Open bills"}: ${formatMinor(openTotal, currency)}`,
   ].join("\n");
 
   const isCurrent = containsNow(report.period.start, report.period.end);
@@ -60,11 +63,28 @@ export default async function ReportsPage({
     const q = new URLSearchParams({ period: p });
     if (anchor) q.set("anchor", anchor);
     if (vendorId) q.set("vendorId", String(vendorId));
+    if (isCustomer) q.set("kind", "customer");
+    return `/reports?${q.toString()}`;
+  };
+  // Switching kind drops the selected party (it belongs to the other list).
+  const kindHref = (k: PartyKind) => {
+    const q = new URLSearchParams({ period });
+    if (keepAnchor) q.set("anchor", keepAnchor);
+    if (k === "customer") q.set("kind", "customer");
     return `/reports?${q.toString()}`;
   };
 
   return (
     <div className="space-y-5 rise">
+      <div className="chip-scroll" role="group" aria-label="Report for">
+        <Link href={kindHref("vendor")} className="chip" data-active={!isCustomer}>
+          Vendors
+        </Link>
+        <Link href={kindHref("customer")} className="chip" data-active={isCustomer}>
+          Customers
+        </Link>
+      </div>
+
       <div className="chip-scroll">
         {PERIODS.map((p) => (
           <Link key={p.key} href={navQuery(keepAnchor, p.key)} className="chip" data-active={period === p.key}>
@@ -76,8 +96,9 @@ export default async function ReportsPage({
       <form method="get" action="/reports" className="flex gap-2">
         <input type="hidden" name="period" value={period} />
         {keepAnchor ? <input type="hidden" name="anchor" value={keepAnchor} /> : null}
-        <select name="vendorId" defaultValue={vendorId ? String(vendorId) : ""} className="field flex-1" aria-label="Vendor">
-          <option value="">All vendors</option>
+        {isCustomer ? <input type="hidden" name="kind" value="customer" /> : null}
+        <select name="vendorId" defaultValue={vendorId ? String(vendorId) : ""} className="field flex-1" aria-label={L.noun}>
+          <option value="">All {L.nounPlural.toLowerCase()}</option>
           {vendorOptions
             .filter((v) => !v.archived || v.id === vendorId)
             .map((v) => (
@@ -119,13 +140,13 @@ export default async function ReportsPage({
 
       <div className="grid grid-cols-2 gap-2">
         <StatTile
-          label="Credit (billed)"
+          label={isCustomer ? "Sales on credit" : "Credit (billed)"}
           value={formatMinor(s.creditMinor, currency, { decimals: false })}
           tone="credit"
-          sub={`${s.creditCount} bills · ${pctLabel(report.delta.creditPct)} vs prev`}
+          sub={`${s.creditCount} ${isCustomer ? "sales" : "bills"} · ${pctLabel(report.delta.creditPct)} vs prev`}
         />
         <StatTile
-          label="Debit (paid)"
+          label={isCustomer ? "Payments received" : "Debit (paid)"}
           value={formatMinor(s.debitMinor, currency, { decimals: false })}
           tone="debit"
           sub={`${s.debitCount} payments · ${pctLabel(report.delta.debitPct)} vs prev`}
@@ -136,7 +157,7 @@ export default async function ReportsPage({
           sub={`avg ${formatMinor(s.avgBillMinor, currency, { decimals: false })}`}
         />
         <StatTile
-          label="Closing balance"
+          label={isCustomer ? "They owe you" : "Closing balance"}
           value={formatMinor(report.closingBalanceMinor, currency, { decimals: false })}
           sub={`opening ${formatMinor(report.openingBalanceMinor, currency, { decimals: false })}`}
         />
@@ -159,11 +180,11 @@ export default async function ReportsPage({
 
       <div>
         <SectionTitle
-          title="Credit aging"
-          hint={`Open bills by bill age (FIFO settlement), as of ${fmtDate(report.agingAsOf ?? report.generatedAt, timeZone)}`}
+          title={isCustomer ? "Receivable aging" : "Credit aging"}
+          hint={`Open ${isCustomer ? "sales by sale" : "bills by bill"} age (FIFO settlement), as of ${fmtDate(report.agingAsOf ?? report.generatedAt, timeZone)}`}
         />
         {openTotal === 0 ? (
-          <EmptyState icon="✅" title="Nothing outstanding" hint="No open bills as of this period." />
+          <EmptyState icon="✅" title="Nothing outstanding" hint={isCustomer ? "No customer owes you as of this period." : "No open bills as of this period."} />
         ) : (
           <Card className="space-y-3">
             {report.aging.map((bucket) => (
@@ -172,7 +193,7 @@ export default async function ReportsPage({
                   <p className="text-[13px] font-semibold">{bucket.label}</p>
                   <p className="text-[13px] font-bold tabular-nums">
                     {formatMinor(bucket.amountMinor, currency, { decimals: false })}
-                    <span className="tiny muted"> · {bucket.count} bills</span>
+                    <span className="tiny muted"> · {bucket.count} {isCustomer ? "sales" : "bills"}</span>
                   </p>
                 </div>
                 <div className="mt-1">
@@ -189,7 +210,7 @@ export default async function ReportsPage({
 
       <div>
         <SectionTitle
-          title={selectedVendor ? "Period breakdown" : "Per-vendor breakdown"}
+          title={selectedVendor ? "Period breakdown" : `Per-${L.nounLower} breakdown`}
           hint="Sorted by total volume"
         />
         {report.vendors.length === 0 ? (
@@ -220,7 +241,7 @@ export default async function ReportsPage({
 
       {report.openLots.length ? (
         <div>
-          <SectionTitle title="Open bills" hint="Outstanding lots with age and overdue days" />
+          <SectionTitle title={isCustomer ? "Open sales (they owe you)" : "Open bills"} hint="Outstanding lots with age and overdue days" />
           <Card className="space-y-2">
             {report.openLots.map((lot) => (
               <div key={lot.transactionId} className="flex items-center justify-between gap-2">
@@ -248,8 +269,9 @@ export default async function ReportsPage({
         period={period}
         anchor={anchorIso}
         vendorId={vendorId}
+        kind={kind}
         shareText={shareText}
-        fileName={`ledger-${selectedVendor ? `${fileSlug(selectedVendor.name)}-` : ""}${period}-${report.period.key}.csv`}
+        fileName={`ledger-${selectedVendor ? `${fileSlug(selectedVendor.name)}-` : isCustomer ? "customers-" : ""}${period}-${report.period.key}.csv`}
       />
 
       <Card className="border-white/5">
@@ -261,7 +283,7 @@ export default async function ReportsPage({
           <li>Order line items: {report.lineItems?.length ?? 0}</li>
           <li>Tax captured: {formatMinor(s.taxMinor, currency, { decimals: false })}</li>
           <li>Largest single entry: {formatMinor(s.largestMinor, currency, { decimals: false })}</li>
-          <li>Vendors active: {s.vendorCount}</li>
+          <li>{L.nounPlural} active: {s.vendorCount}</li>
           <li>Time zone: {timeZone}</li>
         </ul>
       </Card>

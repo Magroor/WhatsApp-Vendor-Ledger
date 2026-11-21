@@ -170,6 +170,18 @@ export default function GuidePage() {
       <Step n={9} title="Good to know">
         <ul className="list-disc space-y-1 pl-5">
           <li>iPhone cannot read your personal WhatsApp directly — that is why Import and Business setup exist.</li>
+          <li>
+            <b>Part payments:</b> on a vendor page, tap <b>Apply to bills</b> under a payment to choose which bills it
+            settles. Each bill then shows “Settled” or “Open Rs X of Rs Y”.
+          </li>
+          <li>
+            <b>Customers:</b> people who buy from you on credit. Open Vendors → <b>Customers</b>. A sale on credit means they owe
+            you; a payment received reduces it. Reminders to customers are worded politely for them.
+          </li>
+          <li>
+            <b>Notifications:</b> in Settings → Notifications. On iPhone they only work after you add KhataLink to the Home Screen
+            (iOS 16.4 or newer) and an administrator has set the push keys.
+          </li>
           <li>Money is stored exactly (no rounding drift).</li>
           <li>If the app shows old data offline, pull down or reopen when online.</li>
         </ul>

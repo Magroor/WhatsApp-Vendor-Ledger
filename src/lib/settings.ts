@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { appSettings, auditEvents } from "@/db/schema";
@@ -17,7 +18,7 @@ export type AppSettingsShape = {
 };
 
 export const DEFAULT_SETTINGS: AppSettingsShape = {
-  businessName: "My Shop",
+  businessName: "KAMRAN RASHEED",
   currency: "PKR",
   defaultTermDays: 30,
   autoReply: true,
@@ -31,15 +32,20 @@ export const DEFAULT_SETTINGS: AppSettingsShape = {
 
 const SETTINGS_KEY = "app";
 
-export async function getSettings(): Promise<AppSettingsShape> {
+async function loadSettings(): Promise<AppSettingsShape> {
   const rows = await db
     .select()
     .from(appSettings)
     .where(eq(appSettings.key, SETTINGS_KEY))
     .limit(1);
   const stored = (rows[0]?.value ?? {}) as Partial<AppSettingsShape>;
+  // "My Shop" was the old placeholder name: treat a saved placeholder as "not set yet".
+  if (stored.businessName === "My Shop") delete stored.businessName;
   return { ...DEFAULT_SETTINGS, ...stored };
 }
+
+/** Cached per request in pages (the layout and the page both ask for settings: one query, not two). */
+export const getSettings = cache(loadSettings);
 
 export async function saveSettings(
   patch: Partial<AppSettingsShape>,

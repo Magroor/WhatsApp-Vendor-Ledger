@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
+import { labelsFor, type PartyKind } from "@/lib/kind";
 
 const CURRENCIES = ["PKR", "INR", "USD", "AED", "SAR", "BDT", "LKR", "GBP", "EUR"];
 
@@ -40,7 +41,9 @@ function validate(f: Form): Errors {
   return errors;
 }
 
-export default function VendorForm({ open = false }: { open?: boolean }) {
+export default function VendorForm({ open = false, kind = "vendor" }: { open?: boolean; kind?: PartyKind }) {
+  const L = labelsFor(kind);
+  const isCustomer = L.kind === "customer";
   const router = useRouter();
   const uid = useId();
   const [expanded, setExpanded] = useState(open);
@@ -69,10 +72,11 @@ export default function VendorForm({ open = false }: { open?: boolean }) {
           name: form.name.trim(),
           phone: form.phone.replace(/[\s()+-]/g, ""),
           openingBalance: form.openingBalance.trim().replace(/,/g, ""),
+          kind: L.kind,
         }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "Could not save vendor");
+      if (!res.ok) throw new Error(json.error ?? `Could not save ${L.nounLower}`);
       setForm(EMPTY);
       setExpanded(false);
       router.refresh();
@@ -86,7 +90,7 @@ export default function VendorForm({ open = false }: { open?: boolean }) {
   if (!expanded) {
     return (
       <button className="btn btn-primary w-full" onClick={() => setExpanded(true)}>
-        ➕ Add vendor
+        ➕ Add {L.nounLower}
       </button>
     );
   }
@@ -97,14 +101,14 @@ export default function VendorForm({ open = false }: { open?: boolean }) {
   return (
     <div className="card space-y-3">
       <div className="flex items-center justify-between">
-        <p className="h2">New vendor khata</p>
+        <p className="h2">New {L.nounLower} khata</p>
         <button className="btn btn-sm" onClick={() => setExpanded(false)}>
           Cancel
         </button>
       </div>
       <div>
         <label className="label" htmlFor={id("name")}>
-          Vendor / shop name
+          {isCustomer ? "Customer name" : "Vendor / shop name"}
         </label>
         <input
           id={id("name")}
@@ -113,7 +117,7 @@ export default function VendorForm({ open = false }: { open?: boolean }) {
           maxLength={80}
           autoComplete="off"
           onChange={(e) => set("name", e.target.value)}
-          placeholder="Ahmed Traders"
+          placeholder={isCustomer ? "Bilal Khan" : "Ahmed Traders"}
           {...bad("name")}
         />
         {errors.name ? (
@@ -141,7 +145,11 @@ export default function VendorForm({ open = false }: { open?: boolean }) {
             {errors.phone}
           </p>
         ) : (
-          <p className="tiny muted mt-1">Used to match this vendor&apos;s WhatsApp messages. Optional.</p>
+          <p className="tiny muted mt-1">
+            {isCustomer
+              ? "Used to send this customer payment reminders on WhatsApp. Optional."
+              : "Used to match this vendor's WhatsApp messages. Optional."}
+          </p>
         )}
       </div>
       <div className="grid grid-cols-2 gap-2">
@@ -217,7 +225,11 @@ export default function VendorForm({ open = false }: { open?: boolean }) {
           {errors.openingBalance}
         </p>
       ) : (
-        <p className="tiny muted">Opening = what you already owe this vendor today (leave 0 if nothing).</p>
+        <p className="tiny muted">
+          {isCustomer
+            ? "Opening = what this customer already owes you today (leave 0 if nothing)."
+            : "Opening = what you already owe this vendor today (leave 0 if nothing)."}
+        </p>
       )}
       {error ? (
         <p className="tiny money-neg" role="alert">
@@ -225,7 +237,7 @@ export default function VendorForm({ open = false }: { open?: boolean }) {
         </p>
       ) : null}
       <button className="btn btn-primary w-full" onClick={submit} disabled={busy}>
-        {busy ? "Saving…" : "Create vendor"}
+        {busy ? "Saving…" : `Create ${L.nounLower}`}
       </button>
     </div>
   );

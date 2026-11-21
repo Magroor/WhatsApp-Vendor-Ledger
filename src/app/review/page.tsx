@@ -73,6 +73,7 @@ export default async function ReviewPage() {
               entryType={i.entryType}
               assumed={i.assumedDirection}
               currency={i.currency}
+              kind={i.vendorKind}
             />
           ) : (
             <p className="mt-2 rounded-xl bg-white/5 p-3 text-sm">

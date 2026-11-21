@@ -4,6 +4,9 @@ import { runIngestSelfTests } from "@/lib/selftest-ingest";
 import { runReportSelfTests } from "@/lib/selftest-reports";
 import { runPlannerSelfTests } from "@/lib/selftest-planner";
 import { runPriceSelfTests } from "@/lib/selftest-prices";
+import { runAllocationSelfTests } from "@/lib/selftest-allocations";
+import { runCustomerSelfTests } from "@/lib/selftest-customers";
+import { runPushSelfTests } from "@/lib/selftest-push";
 import { draftsFromChat, parseChatExport } from "@/lib/chatimport";
 import { parseLedgerText } from "@/lib/parse";
 import { headerNameIn, normName, phonesIn } from "@/lib/aliases";
@@ -85,12 +88,15 @@ function aliasTests(): TestResult[] {
     { suite: "aliases", name: "header line is the shop name", pass: header === "مہران انٹرنیشنل فائل", detail: String(header) },
     { suite: "aliases", name: "mobile numbers found as last 10 digits", pass: phones.includes("3334428904") && phones.includes("3124428904"), detail: phones.join(",") },
     { suite: "aliases", name: "name normalising ignores case and punctuation", pass: normName("  Ahmed  TRADERS. ") === "ahmed traders", detail: normName("  Ahmed  TRADERS. ") },
+    { suite: "aliases", name: "printed form label is not a shop name", pass: headerNameIn("نام دوکاندار:\nنام خریدار: \nنمبر: 67\nپرو وئیر دالو مساجد\n0304-9429269") === "پرو وئیر دالو مساجد", detail: String(headerNameIn("نام دوکاندار:\nنام خریدار: \nنمبر: 67\nپرو وئیر دالو مساجد\n0304-9429269")) },
+    { suite: "aliases", name: "blank pad with only labels learns no name", pass: headerNameIn("نام دوکاندار:\nنام خریدار:\nنمبر: 67") === null, detail: String(headerNameIn("نام دوکاندار:\nنام خریدار:\nنمبر: 67")) },
+    { suite: "aliases", name: "english form labels are skipped", pass: headerNameIn("Customer's Name:\nAddress\nAL NOOR TRADERS") === "AL NOOR TRADERS", detail: String(headerNameIn("Customer's Name:\nAddress\nAL NOOR TRADERS")) },
     { suite: "aliases", name: "a date or total line is not a shop name", pass: headerNameIn("Total 5000\nDate 3/3/21") === null, detail: String(headerNameIn("Total 5000\nDate 3/3/21")) },
   ];
 }
 
 export async function GET() {
-  const results = [...runSelfTests(), ...runIngestSelfTests(), ...runReportSelfTests(), ...chatImportTests(), ...romanUrduTests(), ...urduBillTests(), ...aliasTests(), ...runPlannerSelfTests(), ...runPriceSelfTests()];
+  const results = [...runSelfTests(), ...runIngestSelfTests(), ...runReportSelfTests(), ...chatImportTests(), ...romanUrduTests(), ...urduBillTests(), ...aliasTests(), ...runPlannerSelfTests(), ...runPriceSelfTests(), ...runAllocationSelfTests(), ...runCustomerSelfTests(), ...runPushSelfTests()];
   const summary = summarizeTests(results);
   return ok({ ...summary, results }, summary.failed === 0 ? 200 : 500);
 }

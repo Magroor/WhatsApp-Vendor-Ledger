@@ -1,4 +1,5 @@
-import { ok, readJson } from "@/lib/api";
+import crypto from "node:crypto";
+import { fail, ok, readJsonObject } from "@/lib/api";
 import { getSettings, saveSettings, type AppSettingsShape } from "@/lib/settings";
 import { whatsappConfigured } from "@/lib/wa";
 
@@ -37,34 +38,92 @@ export async function GET(req: Request) {
 
 type PatchBody = Partial<AppSettingsShape> & { rotateVerifyToken?: boolean };
 
-export async function POST(req: Request) {
-  const body = await readJson<PatchBody>(req);
-  const patch: Partial<AppSettingsShape> = {};
-  if (typeof body.businessName === "string" && body.businessName.trim()) patch.businessName = body.businessName.trim().slice(0, 80);
-  if (typeof body.currency === "string") patch.currency = body.currency.toUpperCase().slice(0, 3);
-  if (typeof body.defaultTermDays === "number") patch.defaultTermDays = Math.max(0, Math.min(365, body.defaultTermDays));
-  if (typeof body.autoReply === "boolean") patch.autoReply = body.autoReply;
-  if (typeof body.autoConfirmThreshold === "number") {
-    patch.autoConfirmThreshold = Math.max(0, Math.min(100, Math.round(body.autoConfirmThreshold)));
-  }
-  if (typeof body.reminderCadenceDays === "number") patch.reminderCadenceDays = Math.max(1, Math.min(90, body.reminderCadenceDays));
-  if (typeof body.weeklyReportDay === "number") patch.weeklyReportDay = Math.max(0, Math.min(6, body.weeklyReportDay));
-  if (typeof body.timeZone === "string") {
+function isCurrencyCode(code: string): boolean {
+  if (!/^[A-Z]{3}$/.test(code)) return false;
+  const supported = (Intl as { supportedValuesOf?: (k: string) => string[] }).supportedValuesOf;
+  if (typeof supported === "function") {
     try {
-      new Intl.DateTimeFormat("en-US", { timeZone: body.timeZone });
-      patch.timeZone = body.timeZone;
+      return supported("currency").includes(code);
     } catch {
-      /* ignore invalid zone */
+      /* fall through */
     }
   }
-  if (typeof body.whatsappPhoneNumberId === "string") patch.whatsappPhoneNumberId = body.whatsappPhoneNumberId.trim();
-  if (typeof body.whatsappBusinessId === "string") patch.whatsappBusinessId = body.whatsappBusinessId.trim();
+  return true;
+}
+
+function intInRange(value: unknown, min: number, max: number): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value >= min && value <= max ? value : null;
+}
+
+/**
+ * Every supplied known key is validated; any bad value rejects the whole
+ * request with 400 (nothing is saved). Unknown keys are ignored.
+ */
+export async function POST(req: Request) {
+  const read = await readJsonObject<Record<string, unknown>>(req, 64 * 1024);
+  if (!read.ok) return fail(read.error, read.status);
+  const body = read.body as { [K in keyof PatchBody]?: unknown };
+  const patch: Partial<AppSettingsShape> = {};
+  const errors: string[] = [];
+
+  if (body.businessName !== undefined) {
+    const name = typeof body.businessName === "string" ? body.businessName.replace(/[\u0000-\u001f\u007f]/g, " ").trim() : "";
+    if (!name) errors.push("businessName cannot be empty");
+    else if (name.length > 80) errors.push("businessName must be at most 80 characters");
+    else patch.businessName = name;
+  }
+  if (body.currency !== undefined) {
+    const code = typeof body.currency === "string" ? body.currency.trim().toUpperCase() : "";
+    if (!isCurrencyCode(code)) errors.push("currency must be a 3-letter ISO code like PKR");
+    else patch.currency = code;
+  }
+  const ints: Array<[keyof AppSettingsShape, number, number]> = [
+    ["defaultTermDays", 0, 365],
+    ["autoConfirmThreshold", 0, 100],
+    ["reminderCadenceDays", 1, 90],
+    ["weeklyReportDay", 0, 6],
+  ];
+  for (const [key, min, max] of ints) {
+    if (body[key] === undefined) continue;
+    const n = intInRange(body[key], min, max);
+    if (n === null) errors.push(`${key} must be a whole number from ${min} to ${max}`);
+    else (patch as Record<string, unknown>)[key] = n;
+  }
+  if (body.autoReply !== undefined) {
+    if (typeof body.autoReply !== "boolean") errors.push("autoReply must be true or false");
+    else patch.autoReply = body.autoReply;
+  }
+  if (body.timeZone !== undefined) {
+    let valid = false;
+    if (typeof body.timeZone === "string" && body.timeZone.trim() && body.timeZone.length <= 64) {
+      try {
+        new Intl.DateTimeFormat("en-US", { timeZone: body.timeZone.trim() });
+        valid = true;
+      } catch {
+        valid = false;
+      }
+    }
+    if (!valid) errors.push("timeZone must be an IANA zone like Asia/Karachi");
+    else patch.timeZone = (body.timeZone as string).trim();
+  }
+  for (const key of ["whatsappPhoneNumberId", "whatsappBusinessId"] as const) {
+    if (body[key] === undefined) continue;
+    const v = typeof body[key] === "string" ? (body[key] as string).replace(/\s+/g, "") : null;
+    if (v === null || !/^\d{0,32}$/.test(v)) errors.push(`${key} must be digits only`);
+    else patch[key] = v;
+  }
   if (typeof body.webhookVerifyToken === "string" && body.webhookVerifyToken.trim()) {
-    patch.webhookVerifyToken = body.webhookVerifyToken.trim();
-  } else if (body.rotateVerifyToken) {
-    patch.webhookVerifyToken = `vrf_${Math.random().toString(36).slice(2, 12)}${Date.now().toString(36).slice(-4)}`;
+    const token = body.webhookVerifyToken.trim();
+    if (!/^[\x21-\x7e]{4,128}$/.test(token)) {
+      errors.push("webhookVerifyToken must be 4-128 visible characters with no spaces");
+    } else patch.webhookVerifyToken = token;
+  } else if (body.webhookVerifyToken !== undefined && typeof body.webhookVerifyToken !== "string") {
+    errors.push("webhookVerifyToken must be a string");
+  } else if (body.rotateVerifyToken === true) {
+    patch.webhookVerifyToken = `vrf_${crypto.randomBytes(12).toString("base64url")}`;
   }
 
+  if (errors.length) return fail(errors.join("; "), 400, { errors });
   const next = await saveSettings(patch);
   return ok({ settings: next, config: configSummary() });
 }
